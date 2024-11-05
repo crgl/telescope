@@ -34,7 +34,7 @@ class _AnnotationIntervalTree(object):
         self.run_stranded = True if stranded_mode != 'None' else False
 
         # GTF filehandle
-        fh = open(gtf_file,'rU') if isinstance(gtf_file,str) else gtf_file
+        fh = open(gtf_file,'r') if isinstance(gtf_file,str) else gtf_file
         for rownum, l in enumerate(fh):
             if l.startswith('#'): continue
             f = GTFRow(*l.strip('\n').split('\t'))
