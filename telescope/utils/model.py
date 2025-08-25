@@ -8,7 +8,7 @@ import os
 import logging as lg
 from collections import OrderedDict, defaultdict, Counter
 import gc
-from ray.util.multiprocessing import Pool
+from multiprocessing import Pool
 import functools
 
 import pandas as pd
@@ -188,15 +188,17 @@ class Telescope(object):
         _minAS, _maxAS = BIG_INT, -BIG_INT
         alninfo = Counter()
         mfiles = []
-        pool = Pool(processes = self.opts.ncpu)
+        # pool = Pool(processes = self.opts.ncpu)
         _loadfunc = functools.partial(alignment.fetch_region,
                                       self.opts.samfile,
                                       annotation,
                                       opt_d,
                                       )
-        result = pool.map_async(_loadfunc, regions)
+        # result = pool.map_async(_loadfunc, regions)
         mappings = []
-        for mfile, scorerange, _pxu in result.get():
+        # for mfile, scorerange, _pxu in result.get():
+        for region in regions:
+            mfile, scorerange, _pxu = _loadfunc(region)
             alninfo['unmap_x'] += _pxu
             _minAS = min(scorerange[0], _minAS)
             _maxAS = max(scorerange[1], _maxAS)
