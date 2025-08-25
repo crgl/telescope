@@ -194,7 +194,7 @@ def fetch_region(samfile, annotation, opts, region):
     _omode, _othresh = opts['overlap_mode'], opts['overlap_threshold']
     _tempdir = opts['tempdir']
 
-    assign = model.Assigner(annotation, _nfkey, _omode, _othresh).assign_func()
+    assign = model.Assigner(annotation, _nfkey, _omode, _othresh, opts).assign_func()
 
     _minAS, _maxAS = BIG_INT, -BIG_INT
     _unaligned = 0
