@@ -8,7 +8,7 @@ import os
 import logging as lg
 from collections import OrderedDict, defaultdict, Counter
 import gc
-from multiprocessing import Pool
+from ray.util.multiprocessing import Pool
 import functools
 
 import pandas as pd
