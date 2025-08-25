@@ -190,9 +190,9 @@ def fetch_pairs_sorted(alniter, regtup=None):
 def fetch_region(samfile, annotation, opts, region):
     lg.info('processing {}:{}-{}'.format(*region))
 
-    _nfkey = opts['no_feature_key']
-    _omode, _othresh = opts['overlap_mode'], opts['overlap_threshold']
-    _tempdir = opts['tempdir']
+    _nfkey = opts.no_feature_key
+    _omode, _othresh = opts.overlap_mode, opts.overlap_threshold
+    _tempdir = opts.tempdir
 
     assign = model.Assigner(annotation, _nfkey, _omode, _othresh, opts).assign_func()
 
