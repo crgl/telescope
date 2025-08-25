@@ -16,6 +16,8 @@ import numpy as np
 import scipy
 import pysam
 
+from copy import deepcopy
+
 from .sparse_plus import csr_matrix_plus as csr_matrix
 from .colors import c2str, D2PAL, GPAL
 from .helpers import str2int, region_iter, phred
@@ -179,12 +181,7 @@ class Telescope(object):
                               max(self.ref_lengths) # Do not split contigs
                               )
 
-        opt_d = {
-            'no_feature_key': self.opts.no_feature_key,
-            'overlap_mode': self.opts.overlap_mode,
-            'overlap_threshold': self.opts.overlap_threshold,
-            'tempdir': self.opts.tempdir
-        }
+        opt_d = deepcopy(self.opts)
         _minAS, _maxAS = BIG_INT, -BIG_INT
         alninfo = Counter()
         mfiles = []
