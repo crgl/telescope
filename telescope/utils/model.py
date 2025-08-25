@@ -181,7 +181,7 @@ class Telescope(object):
                               max(self.ref_lengths) # Do not split contigs
                               )
 
-        opt_d = deepcopy(self.opts)
+        opt_d = self.opts
         _minAS, _maxAS = BIG_INT, -BIG_INT
         alninfo = Counter()
         mfiles = []
