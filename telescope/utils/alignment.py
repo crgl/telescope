@@ -183,14 +183,14 @@ def fetch_pairs_sorted(alniter, regtup=None):
                 _code = CODE_INT['PX*'] if aln.is_unmapped else CODE_INT['PX']
                 yield (_code, AlignedPair(aln))
 
-    # Ignore leftover reads in cache (pairs with each end mapping to a different region)
-    # TODO: Debug this
-    # for aln in readcache.values():
-        # Reads in pair mapped to different regions (chromosomes, etc). These are being counted as pair unmixed
+    
+    for aln in readcache.values():
+        # Reads in pair mapped to different regions (chromosomes, etc). Count these as single mapped read1s
         # TODO: assign a specific code to them, pull them all out, and re-enter them as proper pairs by replicating this logic
-        # For now, only yield read1 to maintain uniqueness
-        # if aln.is_read1:
-            # yield (CODE_INT['PX'], AlignedPair(aln))
+        # For now, only yield read1 to maintain uniqueness WLOG for unstranded preps
+        if aln.is_read1:
+            aln.is_proper_pair = False
+            yield (CODE_INT['PX'], AlignedPair(aln))
 
 def fetch_region(samfile, annotation, opts, region):
     lg.info('processing {}:{}-{}'.format(*region))
