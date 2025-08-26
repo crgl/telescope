@@ -184,8 +184,11 @@ def fetch_pairs_sorted(alniter, regtup=None):
                 yield (_code, AlignedPair(aln))
 
     for aln in readcache.values():
-        # Reads in pair mapped to different regions (chromosomes, etc). Count these as pair mixed unmapped, 
-        yield (CODE_INT['PX*'], AlignedPair(aln))
+        # Reads in pair mapped to different regions (chromosomes, etc). These are being counted as pair unmixed
+        # TODO: assign a specific code to them, pull them all out, and re-enter them as proper pairs by replicating this logic
+        # For now, only yield read1 to maintain uniqueness
+        if aln.isread1:
+            yield (CODE_INT['PX'], AlignedPair(aln))
 
 def fetch_region(samfile, annotation, opts, region):
     lg.info('processing {}:{}-{}'.format(*region))
