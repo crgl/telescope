@@ -8,6 +8,8 @@ from collections import defaultdict, namedtuple, Counter, OrderedDict
 import logging as lg
 import pickle
 
+import pandas as pd
+
 
 from intervaltree import Interval, IntervalTree
 
@@ -34,17 +36,15 @@ class _AnnotationIntervalTree(object):
         self.run_stranded = True if stranded_mode != 'None' else False
 
         # GTF filehandle
-        fh = open(gtf_file,'r') if isinstance(gtf_file,str) else gtf_file
-        for rownum, l in enumerate(fh):
-            if l.startswith('#'): continue
-            f = GTFRow(*l.strip('\n').split('\t'))
-            if f.feature != feature_type: continue
+        attribute_df = pd.read_csv(gtf_file, sep='\t', comment='#', header=None, names=['chrom','source','feature','start','end','score','strand','frame','attribute'])
+        feature_df = attribute_df[(attribute_df['feature'] == feature_type)]
+        annotation_df = feature_df[(feature_df['attribute'].str.contains(self.key))].copy()
+        skipped_annotations = feature_df[~(feature_df['attribute'].str.contains(self.key))].index
+        for rownum in skipped_annotations:
+            lg.warning('Skipping row %d: missing attribute "%s"' % (rownum, self.key))
+        for f in annotation_df.itertuples(index=False, name='GTFRow'):
             attr = dict(re.findall('(\w+)\s+"(.+?)";', f.attribute))
             attr['strand'] = f.strand
-            if self.key not in attr:
-                lg.warning('Skipping row %d: missing attribute "%s"' % (rownum, self.key))
-                continue
-
             ''' Add to locus list '''
             if attr[self.key] not in self.loci:
                 self.loci[attr[self.key]] = list()
