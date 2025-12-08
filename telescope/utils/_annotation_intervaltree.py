@@ -30,7 +30,7 @@ class _AnnotationIntervalTree(object):
 
     def __init__(self, gtf_file, attribute_name, stranded_mode, feature_type='exon'):
         lg.debug('Using intervaltree for annotation.')
-        self.loci = OrderedDict()
+        self.loci = set()
         self.key = attribute_name
         self.itree = defaultdict(IntervalTree)
         self.run_stranded = True if stranded_mode != 'None' else False
@@ -40,25 +40,22 @@ class _AnnotationIntervalTree(object):
         feature_df = attribute_df[(attribute_df['feature'] == feature_type)]
         annotation_df = feature_df[(feature_df['attribute'].str.contains(self.key))].copy()
         skipped_annotations = feature_df[~(feature_df['attribute'].str.contains(self.key))].index
+        annotation_df['key'] = annotation_df['attribute'].apply(lambda x: re.search(r'%s\s+"(.+?)";' % self.key, x).group(1))
+        self.loci = set(annotation_df['key'].unique())
         for rownum in skipped_annotations:
             lg.warning('Skipping row %d: missing attribute "%s"' % (rownum, self.key))
         for f in annotation_df.itertuples(index=False, name='GTFRow'):
-            attr = dict(re.findall('(\w+)\s+"(.+?)";', f.attribute))
-            attr['strand'] = f.strand
-            ''' Add to locus list '''
-            if attr[self.key] not in self.loci:
-                self.loci[attr[self.key]] = list()
-            self.loci[attr[self.key]].append(f)
+            element = f.key
             ''' Add to interval tree '''
-            new_iv = Interval(int(f.start), int(f.end)+1, attr)
+            new_iv = Interval(int(f.start), int(f.end)+1, {self.key: element, 'strand': f.strand})
             # Merge overlapping intervals from same locus
             if True:
                 overlap = self.itree[f.chrom].overlap(new_iv)
                 if len(overlap) > 0:
-                    mergeable = [iv for iv in overlap if iv.data[self.key]==attr[self.key]]
+                    mergeable = [iv for iv in overlap if iv.data[self.key]==element]
                     if mergeable:
                         assert len(mergeable) == 1, "Error"
-                        new_iv = merge_intervals(mergeable[0], new_iv, {self.key: attr[self.key], 'strand': attr['strand']})
+                        new_iv = merge_intervals(mergeable[0], new_iv, {self.key: element, 'strand': f.strand})
                         self.itree[f.chrom].remove(mergeable[0])
             self.itree[f.chrom].add(new_iv)
 

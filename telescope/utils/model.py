@@ -467,7 +467,7 @@ class Telescope(object):
         _comment += ['{}:{}'.format(*tup) for tup in self.run_info.items()]
 
         with open(stats_filename, 'w') as outh:
-            outh.write('\t'.join(_comment))
+            print('\t'.join(_comment), file=outh)
             _stats_report.to_csv(outh, sep = '\t', index = False)
 
         with open(counts_filename, 'w') as outh:
