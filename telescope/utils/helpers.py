@@ -7,6 +7,8 @@ from past.utils import old_div
 import numpy as np
 from itertools import zip_longest
 
+import re
+
 __author__ = 'Matthew L. Bendall'
 __copyright__ = "Copyright (C) 2019 Matthew L. Bendall"
 

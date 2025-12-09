@@ -76,6 +76,7 @@ class _AnnotationIntervalTree(object):
         _subannot = type(self).__new__(type(self))
         _subannot.key = self.key
         _subannot.itree = defaultdict(IntervalTree)
+        _subannot.run_stranded = self.run_stranded
 
         if ref in self.itree:
             _subtree = self.itree[ref].copy()
@@ -104,6 +105,7 @@ class _AnnotationIntervalTree(object):
                 'key': self.key,
                 'loci': self.loci,
                 'itree': self.itree,
+                'run_stranded': self.run_stranded,
             }, outh)
 
     @classmethod
@@ -114,5 +116,6 @@ class _AnnotationIntervalTree(object):
         obj.key = loader['key']
         obj.loci = loader['loci']
         obj.itree = loader['itree']
+        obj.run_stranded = loader['run_stranded']
 
         return obj
