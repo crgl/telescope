@@ -91,17 +91,19 @@ class _AnnotationIntervalTree(object):
             _subannot.itree[ref] = _subtree
         return _subannot
 
-    def intersect_blocks(self, ref, blocks, frag_strand):
-        _result = Counter()
-        for b_start, b_end in blocks:
-            query = Interval(b_start, (b_end + 1))
-            for iv in self.itree[ref].overlap(query):
-                if self.run_stranded == True:
+    def intersect_blocks(self, ref, blocks, frag_strand, result=Counter()):
+        if self.run_stranded:
+            for b_start, b_end in blocks:
+                query = Interval(b_start, (b_end + 1))
+                for iv in self.itree[ref].overlap(query):
                     if iv.data['strand'] == frag_strand:
-                        _result[iv.data[self.key]] += overlap_length(iv, query)
-                else:
-                    _result[iv.data[self.key]] += overlap_length(iv, query)
-        return _result
+                        result[iv.data[self.key]] += overlap_length(iv, query)
+        else:
+            for b_start, b_end in blocks:
+                query = Interval(b_start, (b_end + 1))
+                for iv in self.itree[ref].overlap(query):
+                    result[iv.data[self.key]] += overlap_length(iv, query)
+        return result
 
     def save(self, filename):
         with open(filename, 'wb') as outh:

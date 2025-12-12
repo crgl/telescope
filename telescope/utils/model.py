@@ -158,11 +158,11 @@ class Telescope(object):
         self.run_info['annotated_features'] = len(annotation.loci)
         self.feature_length = annotation.feature_length().copy()
 
-        if self.opts.ncpu > 1:
-            maps, scorerange, alninfo = self._load_parallel(annotation)
-        else:
-            maps, scorerange, alninfo = self._load_sequential(annotation)
-            lg.debug(str(alninfo))
+        # if self.opts.ncpu > 1:
+        #     maps, scorerange, alninfo = self._load_parallel(annotation)
+        # else:
+        maps, scorerange, alninfo = self._load_sequential(annotation)
+        lg.debug(str(alninfo))
 
         self._mapping_to_matrix(maps, scorerange, alninfo)
         lg.debug(str(alninfo))
@@ -223,8 +223,8 @@ class Telescope(object):
         with pysam.AlignmentFile(self.opts.samfile, check_sq=False) as sf:
             # Create output temporary files
             if _update_sam:
-                bam_u = pysam.AlignmentFile(self.other_bam, 'wb', template=sf)
-                bam_t = pysam.AlignmentFile(self.tmp_bam, 'wb', template=sf)
+                bam_u = pysam.AlignmentFile(self.other_bam, 'wb', template=sf, threads=min(4,max(self.opts.ncpu * 2 - 2, 1)))
+                bam_t = pysam.AlignmentFile(self.tmp_bam, 'wb', template=sf, threads=min(4,max(self.opts.ncpu * 2 - 2, 1)))
 
             _minAS, _maxAS = BIG_INT, -BIG_INT
             for ci, alns in alignment.fetch_fragments_seq(sf, until_eof=True):
@@ -489,7 +489,7 @@ class Telescope(object):
                 'VN': self.run_info['version'],
                 'CL': ' '.join(sys.argv),
             })
-            outsam = pysam.AlignmentFile(filename, 'wb', header=header)
+            outsam = pysam.AlignmentFile(filename, 'wb', header=header, threads=min(4,max(self.opts.ncpu * 2 - 2, 1)))
             for code, pairs in alignment.fetch_fragments_seq(sf, until_eof=True):
                 if len(pairs) == 0: continue
                 ridx = self.read_index[pairs[0].query_id]
@@ -820,15 +820,10 @@ class Assigner:
                     frag_strand = '-' if self.opts.stranded_mode[-1] == 'F' else '+'
                 else:
                     frag_strand = '+' if self.opts.stranded_mode[0] == 'F' else '-'
-            f = self.annotation.intersect_blocks(pair.ref_name, blocks, frag_strand)
-            if not f:
-                return self.no_feature_key
-            # Calculate the percentage of fragment mapped
-            fname, overlap = f.most_common()[0]
-            if overlap > pair.alnlen * self.overlap_threshold:
-                return fname
-            else:
-                return self.no_feature_key
+            default_to = Counter()
+            default_to[self.no_feature_key] = int(pair.alnlen * self.overlap_threshold)
+            f = self.annotation.intersect_blocks(pair.ref_name, blocks, frag_strand, result=default_to)
+            return f.most_common(1)[0][0]
 
         def _assign_pair_intersection_strict(pair):
             pass
