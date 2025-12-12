@@ -111,13 +111,12 @@ class Telescope(object):
         return
 
     def save(self, filename):
-        _feat_list = sorted(self.feat_index, key=self.feat_index.get)
-        _flen_list = [self.feature_length[f] for f in _feat_list]
+        _flen_list = [self.feature_length[f] for f in self.features_ordered]
         np.savez(filename,
                  _run_info = list(self.run_info.items()),
                  _flen_list = _flen_list,
-                 _feat_list = _feat_list,
-                 _read_list = sorted(self.read_index, key=self.read_index.get),
+                 _feat_list = self.features_ordered,
+                 _read_list = self.reads_ordered,
                  _shape = self.shape,
                  _raw_scores_data = self.raw_scores.data,
                  _raw_scores_indices=self.raw_scores.indices,
@@ -139,9 +138,9 @@ class Telescope(object):
         for f,fl in zip(loader['_feat_list'], loader['_flen_list']):
             obj.feature_length[f] = fl
         ''' Read and feature indexes '''
-        obj.read_index = {n: i for i, n in enumerate(loader['_read_list'])}
-        obj.feat_index = {n: i for i, n in enumerate(loader['_feat_list'])}
-        obj.shape = len(obj.read_index), len(obj.feat_index)
+        obj.reads_ordered = np.array(loader['_read_list'])
+        obj.features_ordered = np.array(loader['_feat_list'])
+        obj.shape = len(obj.reads_ordered), len(obj.features_ordered)
         assert tuple(loader['_shape']) == obj.shape
 
         obj.raw_scores = csr_matrix((
@@ -160,6 +159,7 @@ class Telescope(object):
     def load_alignment(self, annotation):
         self.run_info['annotated_features'] = len(annotation.loci)
         self.feature_length = annotation.feature_length().copy()
+        self.features_ordered = [self.opts.no_feature_key] + list(annotation.loci)
 
         # if self.opts.ncpu > 1:
         #     maps, scorerange, alninfo = self._load_parallel(annotation)
@@ -357,10 +357,10 @@ class Telescope(object):
         self.raw_scores = csr_matrix(csr_matrix(_m1)[_nz, ])
         # _ridx = {v:i for i,v in enumerate(rownames[_nz])}
         # Set the shape
-        self.shape = (_nz.shape, dims)
+        self.shape = dims
         # Ambiguous mappings
         alninfo['overlap_unique'] = np.sum(self.raw_scores.count(1) == 1)
-        alninfo['overlap_ambig'] = self.shape[0] - alninfo['overlap_unique']
+        alninfo['overlap_ambig'] = _nz.size - alninfo['overlap_unique']
 
 
     """
@@ -420,7 +420,7 @@ class Telescope(object):
 
     def output_report(self, tl, stats_filename, counts_filename):
         _rmethod, _rprob = self.opts.reassign_mode, self.opts.conf_prob
-        _fnames = sorted(self.feat_index, key=self.feat_index.get)
+        _fnames = self.features_ordered
         _flens = self.feature_length
         _stats_rounding = pd.Series([2, 3, 2, 3],
                                     index = ['final_conf',
