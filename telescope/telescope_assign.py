@@ -73,6 +73,12 @@ class AssignOptions(utils.SubcommandOptions):
             - updated_sam:
                 action: store_true
                 help: Generate an updated alignment file.
+            - write_other:
+                action: store_true
+                help: Write alignments that do not overlap any features to a separate file.
+            - updated_in_memory:
+                action: store_true
+                help: Keep updated alignments in memory rather than writing to disk. Trade RAM for time
         - Run Modes:
             - reassign_mode:
                 default: exclude
