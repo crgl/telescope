@@ -83,8 +83,6 @@ class Telescope(object):
         self.single_cell = False       # Single cell sequencing
         self.run_info = OrderedDict()  # Information about the run
         self.feature_length = None     # Lengths of features
-        self.read_index = {}           # {"fragment name": row_index}
-        self.feat_index = {}           # {"feature_name": column_index}
         self.shape = None              # Fragments x Features
         self.raw_scores = None         # Initial alignment scores
         self.for_updated_sam = []      # Alignments for updated SAM/BAM
@@ -479,7 +477,7 @@ class Telescope(object):
 
     def update_sam(self, tl, filename):
         _rmethod, _rprob = self.opts.reassign_mode, self.opts.conf_prob
-        _fnames = sorted(self.feat_index, key=self.feat_index.get)
+        feat_index = {f: i for i, f in enumerate(self.features_ordered)}
 
         mat = csr_matrix(tl.reassign(_rmethod, _rprob))
         # best_feats = {i: _fnames for i, j in zip(*mat.nonzero())}
@@ -508,7 +506,7 @@ class Telescope(object):
                         aln.set_tag('YC', c2str((248, 248, 248)))
                         aln.set_mapq(0)
                     else:
-                        fidx = self.feat_index[aln.r1.get_tag('ZF')]
+                        fidx = feat_index[aln.r1.get_tag('ZF')]
                         prob = tl.z[ridx, fidx]
                         aln.set_mapq(phred(prob))
                         aln.set_tag('XP', int(round(prob*100)))
