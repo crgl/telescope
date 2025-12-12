@@ -53,7 +53,7 @@ class _AnnotationIntervalTree(object):
         feature_mapper = {}
         for i, k in enumerate(self.loci):
             feature_mapper[k] = i + 1
-        annotation_df['key_id'] = annotation_df['key'].map(self.loci)
+        annotation_df['key_id'] = annotation_df['key'].map(feature_mapper).astype(int)
         for rownum in skipped_annotations:
             lg.warning('Skipping row %d: missing attribute "%s"' % (rownum, self.key))
         for f in annotation_df.itertuples(index=False, name='GTFRow'):
