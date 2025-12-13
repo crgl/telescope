@@ -79,9 +79,9 @@ class AssignOptions(utils.SubcommandOptions):
             - updated_in_memory:
                 action: store_true
                 help: Keep updated alignments in memory rather than writing to disk. Trade RAM for time
-            - save_checkpoint:
+            - no_checkpoint:
                 action: store_true
-                help: Save a checkpoint file after loading alignments and before running EM.
+                help: Skip checkpoint file after loading alignments and before running EM.
         - Run Modes:
             - reassign_mode:
                 default: exclude
@@ -255,7 +255,7 @@ def run(args):
     lg.debug('garbage: {:d}'.format(gc.collect()))
 
     ''' Save object checkpoint '''
-    if opts.save_checkpoint:
+    if not opts.no_checkpoint:
         lg.info("Saving checkpoint...")
         ts.save(opts.outfile_path('checkpoint'))
     if opts.skip_em:

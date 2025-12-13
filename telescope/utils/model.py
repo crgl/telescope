@@ -283,8 +283,6 @@ class Telescope(object):
         if _update_sam:
             if self.opts.write_other:
                 bam_u.close()
-            if self.opts.updated_in_memory:
-                self.for_updated_sam = np.array(self.for_updated_sam)
             else:
                 bam_t.close()
         # lg.info('Alignment Info: {}'.format(alninfo))
@@ -521,6 +519,8 @@ class Telescope(object):
                                 aln.set_tag('YC', c2str(GPAL[2]))
                     aln.write(outsam)
             outsam.close()
+        if not self.opts.updated_in_memory:
+            os.remove(self.tmp_bam)
 
     def print_summary(self, loglev=lg.WARNING):
         _d = Counter()
