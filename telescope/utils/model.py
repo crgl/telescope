@@ -431,7 +431,7 @@ class Telescope(object):
         # Report information for run statistics
         _stats_report0 = {
             'transcript': _fnames,                                          # transcript
-            'transcript_length': [_flens[f] for f in _fnames],              # tx_len
+            'transcript_length': [_flens[i] for i in range(len(_fnames))],              # tx_len
             'final_conf': tl.reassign('conf', _rprob).sum(0).A1,            # final_conf
             'final_prop': tl.pi,                                            # final_prop
             'init_aligned': tl.reassign('all', initial=True).sum(0).A1,     # init_aligned
