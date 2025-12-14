@@ -350,8 +350,8 @@ class Telescope(object):
         # _ridx = {v:i for i,v in enumerate(rownames[_nz])}
         # Set the shape
         self.shape = self.raw_scores.shape
-        self.read_index = np.zeros(self.reads_ordered.size) - 1
-        self.read_index[_nz] = np.arange(self.shape[0])
+        self.read_index = np.zeros(self.reads_ordered.size, dtype=np.int_) - 1
+        self.read_index[_nz] = np.arange(self.shape[0], dtype=np.int_)
         self.reads_ordered = np.array(self.reads_ordered[_nz])
         # Ambiguous mappings
         alninfo['overlap_unique'] = np.sum(self.raw_scores.count(1) == 1)
