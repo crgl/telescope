@@ -487,7 +487,9 @@ class Telescope(object):
             })
             outsam = pysam.AlignmentFile(filename, 'wb', header=header, threads=min(2, max(self.opts.ncpu * 2 - 2, 1)))
             for idx, (_code, pairs) in enumerate(alignment.fetch_fragments_seq(sf, until_eof=True)):
-                if len(pairs) == 0: continue
+                if len(pairs) == 0:
+                    lg.log(lg.WARNING, 'No alignments for fragment {}'.format(pairs[0].query_id))
+                    continue
                 for aln in pairs:
                     if aln.is_unmapped:
                         aln.write(outsam)
