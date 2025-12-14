@@ -76,9 +76,6 @@ class AssignOptions(utils.SubcommandOptions):
             - write_other:
                 action: store_true
                 help: Write alignments that do not overlap any features to a separate file.
-            - updated_in_memory:
-                action: store_true
-                help: Keep updated alignments in memory rather than writing to disk. Trade RAM for time
             - no_checkpoint:
                 action: store_true
                 help: Skip checkpoint file after loading alignments and before running EM.

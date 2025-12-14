@@ -224,10 +224,9 @@ class Telescope(object):
         with pysam.AlignmentFile(self.opts.samfile, check_sq=False) as sf:
             # Create output temporary files
             if _update_sam:
+                bam_t = pysam.AlignmentFile(self.tmp_bam, 'wb', template=sf, threads=min(2,max(self.opts.ncpu * 2 - 2, 1)))
                 if self.opts.write_other:
                     bam_u = pysam.AlignmentFile(self.other_bam, 'wb', template=sf, threads=min(4,max(self.opts.ncpu * 2 - 2, 1)))
-                if not self.opts.updated_in_memory:
-                    bam_t = pysam.AlignmentFile(self.tmp_bam, 'wb', template=sf, threads=min(4,max(self.opts.ncpu * 2 - 2, 1)))
 
             _minAS, _maxAS = BIG_INT, -BIG_INT
             for ci, alns in alignment.fetch_fragments_seq(sf, until_eof=True):
@@ -274,18 +273,13 @@ class Telescope(object):
                 self.reads_ordered.append(alns[0].query_id)
 
                 if _update_sam:
-                    if self.opts.updated_in_memory:
-                        self.for_updated_sam.append((ci, alns))
-                    else:
-                        [p.write(bam_t) for p in alns]
+                    [p.write(bam_t) for p in alns]
 
         ''' Loading complete '''
         if _update_sam:
+            bam_t.close()
             if self.opts.write_other:
                 bam_u.close()
-            else:
-                if not self.opts.updated_in_memory:
-                    bam_t.close()
         # lg.info('Alignment Info: {}'.format(alninfo))
         self.reads_ordered = np.array(self.reads_ordered)
         return np.array(_mappings), (_minAS, _maxAS), alninfo
@@ -356,6 +350,8 @@ class Telescope(object):
         # _ridx = {v:i for i,v in enumerate(rownames[_nz])}
         # Set the shape
         self.shape = self.raw_scores.shape
+        self.read_index = np.zeros(self.reads_ordered.size) - 1
+        self.read_index[_nz] = np.arange(self.shape[0])
         self.reads_ordered = np.array(self.reads_ordered[_nz])
         # Ambiguous mappings
         alninfo['overlap_unique'] = np.sum(self.raw_scores.count(1) == 1)
@@ -479,11 +475,9 @@ class Telescope(object):
     def update_sam(self, tl, filename):
         _rmethod, _rprob = self.opts.reassign_mode, self.opts.conf_prob
         feat_index = {f: i for i, f in enumerate(self.features_ordered)}
-        read_index = {r: i for i, r in enumerate(self.reads_ordered)}
 
         mat = csr_matrix(tl.reassign(_rmethod, _rprob))
         # best_feats = {i: _fnames for i, j in zip(*mat.nonzero())}
-
         with pysam.AlignmentFile(self.tmp_bam, check_sq=False) as sf:
             header = sf.header
             header['PG'].append({
@@ -491,12 +485,8 @@ class Telescope(object):
                 'VN': self.run_info['version'],
                 'CL': ' '.join(sys.argv),
             })
-            outsam = pysam.AlignmentFile(filename, 'wb', header=header, threads=min(4,max(self.opts.ncpu * 2 - 2, 1)))
-            if self.opts.updated_in_memory:
-                mapping_iter = self.for_updated_sam
-            else:
-                mapping_iter = alignment.fetch_fragments_seq(sf, until_eof=True)
-            for _code, pairs in mapping_iter:
+            outsam = pysam.AlignmentFile(filename, 'wb', header=header, threads=min(2, max(self.opts.ncpu * 2 - 2, 1)))
+            for idx, (_code, pairs) in enumerate(alignment.fetch_fragments_seq(sf, until_eof=True)):
                 if len(pairs) == 0: continue
                 for aln in pairs:
                     if aln.is_unmapped:
@@ -509,8 +499,8 @@ class Telescope(object):
                         aln.set_mapq(0)
                     else:
                         fidx = feat_index[aln.r1.get_tag('ZF')]
-                        ridx = read_index.get(aln.query_id)
-                        if ridx:
+                        ridx = self.read_index[ridx]
+                        if ridx >= 0:
                             prob = tl.z[ridx, fidx]
                         else:
                             prob = 0
@@ -527,8 +517,7 @@ class Telescope(object):
                                 aln.set_tag('YC', c2str(GPAL[2]))
                     aln.write(outsam)
             outsam.close()
-        if not self.opts.updated_in_memory:
-            os.remove(self.tmp_bam)
+        os.remove(self.tmp_bam)
 
     def print_summary(self, loglev=lg.WARNING):
         _d = Counter()
