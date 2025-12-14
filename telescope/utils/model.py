@@ -284,8 +284,10 @@ class Telescope(object):
             if self.opts.write_other:
                 bam_u.close()
             else:
-                bam_t.close()
+                if not self.opts.updated_in_memory:
+                    bam_t.close()
         # lg.info('Alignment Info: {}'.format(alninfo))
+        self.reads_ordered = np.array(self.reads_ordered)
         return np.array(_mappings), (_minAS, _maxAS), alninfo
 
     def _mapping_to_matrix(self, miter, scorerange, alninfo):
@@ -353,7 +355,8 @@ class Telescope(object):
         self.raw_scores = csr_matrix(csr_matrix(_m1)[_nz, ])
         # _ridx = {v:i for i,v in enumerate(rownames[_nz])}
         # Set the shape
-        self.shape = dims
+        self.shape = self.raw_scores.shape
+        self.reads_ordered = np.array(self.reads_ordered[_nz])
         # Ambiguous mappings
         alninfo['overlap_unique'] = np.sum(self.raw_scores.count(1) == 1)
         alninfo['overlap_ambig'] = _nz.size - alninfo['overlap_unique']
@@ -476,6 +479,7 @@ class Telescope(object):
     def update_sam(self, tl, filename):
         _rmethod, _rprob = self.opts.reassign_mode, self.opts.conf_prob
         feat_index = {f: i for i, f in enumerate(self.features_ordered)}
+        read_index = {r: i for i, r in enumerate(self.reads_ordered)}
 
         mat = csr_matrix(tl.reassign(_rmethod, _rprob))
         # best_feats = {i: _fnames for i, j in zip(*mat.nonzero())}
@@ -492,7 +496,7 @@ class Telescope(object):
                 mapping_iter = self.for_updated_sam
             else:
                 mapping_iter = alignment.fetch_fragments_seq(sf, until_eof=True)
-            for ridx, (_code, pairs) in enumerate(mapping_iter):
+            for _code, pairs in mapping_iter:
                 if len(pairs) == 0: continue
                 for aln in pairs:
                     if aln.is_unmapped:
@@ -505,10 +509,14 @@ class Telescope(object):
                         aln.set_mapq(0)
                     else:
                         fidx = feat_index[aln.r1.get_tag('ZF')]
-                        prob = tl.z[ridx, fidx]
+                        ridx = read_index.get(aln.query_id)
+                        if ridx:
+                            prob = tl.z[ridx, fidx]
+                        else:
+                            prob = 0
                         aln.set_mapq(phred(prob))
                         aln.set_tag('XP', int(round(prob*100)))
-                        if mat[ridx, fidx] > 0:
+                        if prob > 0 and mat[ridx, fidx] > 0:
                             aln.unset_flag(pysam.FSECONDARY)
                             aln.set_tag('YC',c2str(D2PAL['vermilion']))
                         else:
