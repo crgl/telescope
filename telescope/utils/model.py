@@ -499,7 +499,7 @@ class Telescope(object):
                         aln.set_mapq(0)
                     else:
                         fidx = feat_index[aln.r1.get_tag('ZF')]
-                        ridx = self.read_index[ridx]
+                        ridx = self.read_index[idx]
                         if ridx >= 0:
                             prob = tl.z[ridx, fidx]
                         else:
