@@ -85,8 +85,6 @@ class Telescope(object):
         self.feature_length = None     # Lengths of features
         self.shape = None              # Fragments x Features
         self.raw_scores = None         # Initial alignment scores
-        self.for_updated_sam = []      # Alignments for updated SAM/BAM
-        self.reads_ordered = []        # List of read names in order
         self.fragment_count = 0        # Total fragments with overlaps
 
         # BAM with non overlapping fragments (or unmapped)
@@ -114,7 +112,7 @@ class Telescope(object):
                  _run_info = list(self.run_info.items()),
                  _flen_list = _flen_list,
                  _feat_list = self.features_ordered,
-                 _read_list = self.reads_ordered,
+                 _read_list = self.read_index,
                  _shape = self.shape,
                  _raw_scores_data = self.raw_scores.data,
                  _raw_scores_indices=self.raw_scores.indices,
@@ -136,9 +134,9 @@ class Telescope(object):
         for f,fl in zip(loader['_feat_list'], loader['_flen_list']):
             obj.feature_length[f] = fl
         ''' Read and feature indexes '''
-        obj.reads_ordered = np.array(loader['_read_list'])
+        obj.read_index = np.array(loader['_read_list'])
         obj.features_ordered = np.array(loader['_feat_list'])
-        obj.shape = len(obj.reads_ordered), len(obj.features_ordered)
+        obj.shape = len(obj.read_index[obj.read_index >= 0]), len(obj.features_ordered)
         assert tuple(loader['_shape']) == obj.shape
 
         obj.raw_scores = csr_matrix((
@@ -193,7 +191,6 @@ class Telescope(object):
                                       opt_d,
                                       )
         # result = pool.map_async(_loadfunc, regions)
-        mappings = []
         # for mfile, scorerange, _pxu in result.get():
         for region in regions:
             mfile, scorerange, _pxu = _loadfunc(region)
@@ -270,7 +267,6 @@ class Telescope(object):
                 for m in process_overlap_frag(_mapped, overlap_feats, annotation.loci):
                     _mappings.append((ci, self.fragment_count, m[0], m[1], m[2]))
                 self.fragment_count += 1
-                self.reads_ordered.append(alns[0].query_id)
 
                 if _update_sam:
                     [p.write(bam_t) for p in alns]
@@ -281,7 +277,6 @@ class Telescope(object):
             if self.opts.write_other:
                 bam_u.close()
         # lg.info('Alignment Info: {}'.format(alninfo))
-        self.reads_ordered = np.array(self.reads_ordered)
         return np.array(_mappings), (_minAS, _maxAS), alninfo
 
     def _mapping_to_matrix(self, miter, scorerange, alninfo):
@@ -345,14 +340,14 @@ class Telescope(object):
         # assert _fidx[self.opts.no_feature_key] == 0, "No feature key is not first column!"
         # Remove nofeature column then find rows with nonzero values
         _nz = scipy.sparse.csc_matrix(_m1)[:,1:].sum(1).nonzero()[0]
+        lg.info('Dropped {} fragments without feature overlaps.'.format(_nz.size))
         # Subset scores and read names
         self.raw_scores = csr_matrix(csr_matrix(_m1)[_nz, ])
         # _ridx = {v:i for i,v in enumerate(rownames[_nz])}
         # Set the shape
         self.shape = self.raw_scores.shape
-        self.read_index = np.zeros(self.reads_ordered.size, dtype=np.int_) - 1
+        self.read_index = np.zeros(self.fragment_count, dtype=np.int_) - 1
         self.read_index[_nz] = np.arange(self.shape[0], dtype=np.int_)
-        self.reads_ordered = np.array(self.reads_ordered[_nz])
         # Ambiguous mappings
         alninfo['overlap_unique'] = np.sum(self.raw_scores.count(1) == 1)
         alninfo['overlap_ambig'] = _nz.size - alninfo['overlap_unique']
