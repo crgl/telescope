@@ -265,7 +265,7 @@ class Telescope(object):
 
                 ''' Find the best alignment for each locus '''
                 for m in process_overlap_frag(_mapped, overlap_feats, annotation.loci):
-                    _mappings.append((ci, self.fragment_count, m[0], m[1], m[2]))
+                    _mappings.append((ci, self.fragment_count, m[0], m[1], m[2])) # m: (feat, _topaln.alnscore, _topaln.alnlen)
                 self.fragment_count += 1
 
                 if _update_sam:
@@ -277,7 +277,9 @@ class Telescope(object):
             if self.opts.write_other:
                 bam_u.close()
         # lg.info('Alignment Info: {}'.format(alninfo))
-        return np.array(_mappings), (_minAS, _maxAS), alninfo
+        _mappings = np.array(_mappings)
+        assert _mappings[_mappings[:, 2] > 0, 3].shape[0] > 0, "No mappings to annotated features found!"
+        return _mappings, (_minAS, _maxAS), alninfo
 
     def _mapping_to_matrix(self, miter, scorerange, alninfo):
         _isparallel = 'total_fragments' not in alninfo
@@ -295,36 +297,39 @@ class Telescope(object):
         # _m1 = scipy.sparse.dok_matrix(dim, dtype=np.uint16)
         dims = (self.fragment_count, self.run_info['annotated_features'] + 1)
         scores = miter[:, 3] - minAS + 1
-        _m1 = scipy.sparse.coo_matrix((scores, (miter[:, 1], miter[:, 2])), dtype=np.uint16, shape=dims)
+        frags = miter[:, 1]
+        feats = miter[:, 2]
+        assert np.unique(frags[(feats > 0) & (scores > 0)]).size == np.unique(frags).size, "Some fragments have no valid scores!"
+        _m1 = scipy.sparse.coo_matrix((scores, (frags, feats)), dtype=np.uint16, shape=dims)
 
-        if _isparallel:
-            rcodes = defaultdict(Counter)
-            for code, ridx in miter[:, :2]:
-                rcodes[code][ridx] += 1
+        # if _isparallel:
+        #     rcodes = defaultdict(Counter)
+        #     for code, ridx in miter[:, :2]:
+        #         rcodes[code][ridx] += 1
 
 
         ''' Update counts '''
-        if _isparallel:
-            # Default for nunmap_idx is zero
-            unmap_both = self.run_info.get('nunmap_idx', 0) - alninfo['unmap_x']
-            alninfo['unmapped'] = old_div(unmap_both, 2)
-            for cs, desc in alignment.CODES:
-                ci = alignment.CODE_INT[cs]
-                if cs not in alninfo and ci in rcodes:
-                    alninfo[cs] = len(rcodes[ci])
-                if cs in ['SM','PM','PX'] and ci in rcodes:
-                    _a = sum(v>1 for k,v in rcodes[ci].items())
-                    alninfo['unique'] += (len(rcodes[ci]) - _a)
-                    alninfo['ambig'] += _a
-            alninfo['total_fragments'] = alninfo['unmapped'] + \
-                                         alninfo['PM'] + alninfo['PX'] + \
-                                         alninfo['SM']
-        else:
-            alninfo['unmapped'] = alninfo['SU'] + alninfo['PU']
-            alninfo['unique'] = alninfo['nofeat_U'] + alninfo['feat_U']
-            alninfo['ambig'] = alninfo['nofeat_A'] + alninfo['feat_A']
-            # alninfo['overlap_unique'] = alninfo['feat_U']
-            # alninfo['overlap_ambig'] = alninfo['feat_A']
+        # if _isparallel:
+        #     # Default for nunmap_idx is zero
+        #     unmap_both = self.run_info.get('nunmap_idx', 0) - alninfo['unmap_x']
+        #     alninfo['unmapped'] = old_div(unmap_both, 2)
+        #     for cs, desc in alignment.CODES:
+        #         ci = alignment.CODE_INT[cs]
+        #         if cs not in alninfo and ci in rcodes:
+        #             alninfo[cs] = len(rcodes[ci])
+        #         if cs in ['SM','PM','PX'] and ci in rcodes:
+        #             _a = sum(v>1 for k,v in rcodes[ci].items())
+        #             alninfo['unique'] += (len(rcodes[ci]) - _a)
+        #             alninfo['ambig'] += _a
+        #     alninfo['total_fragments'] = alninfo['unmapped'] + \
+        #                                  alninfo['PM'] + alninfo['PX'] + \
+        #                                  alninfo['SM']
+        # else:
+        alninfo['unmapped'] = alninfo['SU'] + alninfo['PU']
+        alninfo['unique'] = alninfo['nofeat_U'] + alninfo['feat_U']
+        alninfo['ambig'] = alninfo['nofeat_A'] + alninfo['feat_A']
+        # alninfo['overlap_unique'] = alninfo['feat_U']
+        # alninfo['overlap_ambig'] = alninfo['feat_A']
 
         ''' Tweak alninfo '''
         for cs,desc in alignment.CODES:
