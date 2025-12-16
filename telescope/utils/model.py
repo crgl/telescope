@@ -278,7 +278,6 @@ class Telescope(object):
                 bam_u.close()
         # lg.info('Alignment Info: {}'.format(alninfo))
         _mappings = np.array(_mappings)
-        assert _mappings[_mappings[:, 2] > 0, 3].shape[0] > 0, "No mappings to annotated features found!"
         return _mappings, (_minAS, _maxAS), alninfo
 
     def _mapping_to_matrix(self, miter, scorerange, alninfo):
@@ -299,7 +298,13 @@ class Telescope(object):
         scores = miter[:, 3] - minAS + 1
         frags = miter[:, 1]
         feats = miter[:, 2]
-        assert np.unique(frags[(feats > 0) & (scores > 0)]).size == np.unique(frags).size, "Some fragments have no valid scores!"
+        try:
+            assert np.unique(frags[(feats > 0) & (scores > 0)]).size == np.unique(frags).size, "Some fragments have no valid scores!"
+        except:
+            outmat = np.zeros(dims, dtype=np.uint16)
+            scipy.sparse.coo_matrix((scores, (frags, feats)), dtype=np.uint16, shape=dims).todense(out=outmat)
+            pd.DataFrame(outmat, index=np.arange(dims[0]), columns=np.arange(dims[1])).to_csv('debug_matrix.csv')
+            raise AssertionError("Some fragments have no valid scores!")
         _m1 = scipy.sparse.coo_matrix((scores, (frags, feats)), dtype=np.uint16, shape=dims)
 
         # if _isparallel:
