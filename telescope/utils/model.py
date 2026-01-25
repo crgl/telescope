@@ -298,13 +298,6 @@ class Telescope(object):
         scores = miter[:, 3] - minAS + 1
         frags = miter[:, 1]
         feats = miter[:, 2]
-        try:
-            assert np.unique(frags[(feats > 0) & (scores > 0)]).size == np.unique(frags).size, "Some fragments have no valid scores!"
-        except:
-            outmat = np.zeros(dims, dtype=np.uint16)
-            scipy.sparse.coo_matrix((scores, (frags, feats)), dtype=np.uint16, shape=dims).todense(out=outmat)
-            pd.DataFrame(outmat, index=np.arange(dims[0]), columns=np.arange(dims[1])).to_csv('debug_matrix.csv')
-            raise AssertionError("Some fragments have no valid scores!")
         _m1 = scipy.sparse.coo_matrix((scores, (frags, feats)), dtype=np.uint16, shape=dims)
 
         # if _isparallel:
@@ -350,7 +343,7 @@ class Telescope(object):
         # assert _fidx[self.opts.no_feature_key] == 0, "No feature key is not first column!"
         # Remove nofeature column then find rows with nonzero values
         _nz = scipy.sparse.csc_matrix(_m1)[:,1:].sum(1).nonzero()[0]
-        lg.info('Dropped {} fragments without feature overlaps.'.format(_nz.size))
+        lg.info('Dropped {} fragments without feature overlaps.'.format(np.unique(frags).size - _nz.size))
         # Subset scores and read names
         self.raw_scores = csr_matrix(csr_matrix(_m1)[_nz, ])
         # _ridx = {v:i for i,v in enumerate(rownames[_nz])}
