@@ -5,17 +5,28 @@
 //! each contributes one `(row, column, score)` triple per feature, and read
 //! names are never kept (a 128-bit hash stands in for Telescope's
 //! name -> row dictionary).
+//!
+//! With `--updated_sam` the loader also does what Telescope does while
+//! loading: fragments that overlap the annotation are tagged (`ZF` feature,
+//! `ZT` PRI/SEC, `ZB` best features) and written to a temporary BAM for the
+//! second pass in [`super::updated_sam`]; everything else goes to `other.bam`.
 
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::fs::File;
 use std::hash::{Hash, Hasher};
-use std::io;
+use std::io::{self, BufReader, Read};
 
 use noodles::{
     bam,
-    sam::alignment::{
-        RecordBuf,
-        record::{cigar::op::Kind, data::field::Tag},
+    sam::{
+        self, Header,
+        alignment::{
+            RecordBuf,
+            io::Write as AlignmentWrite,
+            record::{cigar::op::Kind, data::field::Tag},
+            record_buf::data::field::Value,
+        },
     },
 };
 
@@ -83,10 +94,79 @@ pub struct Loaded {
     pub info: RunInfo,
     /// Alignments whose best feature was one of several equally-overlapped loci.
     pub tied_alignments: u64,
+    /// Read-name hash -> matrix row; kept only when an updated BAM is wanted.
+    pub rows: Option<HashMap<u128, u32>>,
+    pub header: Header,
+}
+
+pub const TAG_FEATURE: Tag = Tag::new(b'Z', b'F');
+pub const TAG_RANK: Tag = Tag::new(b'Z', b'T');
+pub const TAG_BEST: Tag = Tag::new(b'Z', b'B');
+
+/// pysam's `set_tag(..., replace=True)`: drop any existing value, append.
+pub fn set_tag(rec: &mut RecordBuf, tag: Tag, value: Value) {
+    rec.data_mut().remove(&tag);
+    rec.data_mut().insert(tag, value);
+}
+
+type ReadFn = Box<dyn FnMut(&Header, &mut RecordBuf) -> io::Result<usize>>;
+
+/// Reads SAM or BAM (picked by content, as pysam does) one record at a time.
+pub struct AlignmentReader {
+    pub header: Header,
+    next: ReadFn,
+}
+
+impl AlignmentReader {
+    pub fn open(path: &str) -> io::Result<Self> {
+        let mut magic = [0u8; 2];
+        let n = File::open(path)?.read(&mut magic)?;
+        if n == 2 && magic == [0x1f, 0x8b] {
+            let mut r = bam::io::reader::Builder.build_from_path(path)?;
+            let header = r.read_header()?;
+            Ok(AlignmentReader { header, next: Box::new(move |h, buf| r.read_record_buf(h, buf)) })
+        } else {
+            let mut r = sam::io::Reader::new(BufReader::new(File::open(path)?));
+            let header = r.read_header()?;
+            Ok(AlignmentReader { header, next: Box::new(move |h, buf| r.read_record_buf(h, buf)) })
+        }
+    }
+
+    pub fn read(&mut self, buf: &mut RecordBuf) -> io::Result<usize> {
+        (self.next)(&self.header, buf)
+    }
+}
+
+/// A BAM being written with the input's header.
+pub struct BamOut {
+    header: Header,
+    writer: bam::io::Writer<noodles::bgzf::io::Writer<File>>,
+}
+
+impl BamOut {
+    pub fn create(path: &str, header: &Header) -> io::Result<Self> {
+        let mut writer = bam::io::Writer::new(File::create(path)?);
+        writer.write_header(header)?;
+        Ok(BamOut { header: header.clone(), writer })
+    }
+    pub fn write(&mut self, rec: &RecordBuf) -> io::Result<()> {
+        self.writer.write_alignment_record(&self.header, rec)
+    }
+    pub fn finish(mut self) -> io::Result<()> {
+        self.writer.try_finish()
+    }
+}
+
+/// Where the loader sends records when an updated BAM is requested.
+pub struct SamOutputs {
+    /// Fragments that overlap the annotation, tagged, for the second pass.
+    pub tagged: BamOut,
+    /// Unmapped and non-overlapping fragments (Telescope's `other.bam`).
+    pub other: Option<BamOut>,
 }
 
 #[derive(Default)]
-struct Rec {
+pub(super) struct Rec {
     flag: u16,
     ref_id: i32,
     start: i32,
@@ -104,7 +184,7 @@ impl Rec {
     fn is_proper(&self) -> bool {
         self.flag & 0x2 != 0
     }
-    fn is_unmapped(&self) -> bool {
+    pub(super) fn is_unmapped(&self) -> bool {
         self.flag & 0x4 != 0
     }
     fn is_reverse(&self) -> bool {
@@ -122,7 +202,7 @@ impl Rec {
         (!self.is_read1(), self.mate_ref, self.mate_start, self.ref_id, self.start, self.tlen_abs)
     }
 
-    fn fill(&mut self, rec: &RecordBuf, as_tag: &Tag) {
+    pub(super) fn fill(&mut self, rec: &RecordBuf, as_tag: &Tag) {
         self.flag = u16::from(rec.flags());
         self.ref_id = rec.reference_sequence_id().map_or(-1, |i| i as i32);
         self.start = rec.alignment_start().map_or(-1, |p| usize::from(p) as i32 - 1);
@@ -147,17 +227,17 @@ impl Rec {
     }
 }
 
-type MateKey = (bool, i32, i32, i32, i32, u32);
+pub(super) type MateKey = (bool, i32, i32, i32, i32, u32);
 
 /// One of Telescope's `AlignedPair`s: indices into the current bundle.
 #[derive(Clone, Copy)]
-struct Aln {
-    r1: usize,
-    r2: Option<usize>,
+pub(super) struct Aln {
+    pub r1: usize,
+    pub r2: Option<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Code {
+pub(super) enum Code {
     SingleUnmapped,
     SingleMapped,
     PairUnmapped,
@@ -167,7 +247,7 @@ enum Code {
 
 /// `fetch_fragments_seq` for one bundle of same-named records. The whole
 /// bundle is classified from its first record.
-fn classify(recs: &[Rec], out: &mut Vec<Aln>, cache: &mut Vec<(MateKey, usize, bool)>) -> Code {
+pub(super) fn classify(recs: &[Rec], out: &mut Vec<Aln>, cache: &mut Vec<(MateKey, usize, bool)>) -> Code {
     out.clear();
     let first = &recs[0];
     let singles = |out: &mut Vec<Aln>| out.extend((0..recs.len()).map(|r1| Aln { r1, r2: None }));
@@ -226,7 +306,7 @@ fn merge_blocks(blocks: &mut Vec<(i64, i64)>) {
     blocks.truncate(w + 1);
 }
 
-fn name_hash(name: &[u8]) -> u128 {
+pub(super) fn name_hash(name: &[u8]) -> u128 {
     let mut a = DefaultHasher::new();
     name.hash(&mut a);
     let mut b = DefaultHasher::new();
@@ -264,17 +344,33 @@ struct Accum<'a> {
     cache: Vec<(MateKey, usize, bool)>,
     blocks: Vec<(i64, i64)>,
     hits: Scratch,
-    scored: Vec<(u32, i64, i64)>,
-    by_feat: Vec<(u32, i64, i64)>,
+    /// per mapped alignment: (feature, alnscore, alnscore + alnlen, index into `alns`)
+    scored: Vec<(u32, i64, i64, usize)>,
+    /// per feature: (feature, top alnscore, top total, index into `scored` of the top alignment)
+    by_feat: Vec<(u32, i64, i64, usize)>,
+    out: Option<SamOutputs>,
+}
+
+fn write_aln(out: &mut BamOut, raw: &[RecordBuf], aln: Aln) -> io::Result<()> {
+    out.write(&raw[aln.r1])?;
+    if let Some(r2) = aln.r2 {
+        out.write(&raw[r2])?;
+    }
+    Ok(())
 }
 
 impl Accum<'_> {
-    fn bundle(&mut self, name: &[u8], recs: &[Rec]) -> io::Result<()> {
+    /// `raw` holds the bundle's full records when BAM output is on (else empty).
+    fn bundle(&mut self, name: &[u8], recs: &[Rec], raw: &mut [RecordBuf]) -> io::Result<()> {
         self.info.total_fragments += 1;
         let code = classify(recs, &mut self.alns, &mut self.cache);
         match code {
             Code::SingleUnmapped | Code::PairUnmapped => {
                 self.info.unmapped += 1;
+                // Telescope writes only the first AlignedPair of an unmapped bundle.
+                if let Some(other) = self.out.as_mut().and_then(|o| o.other.as_mut()) {
+                    write_aln(other, raw, self.alns[0])?;
+                }
                 return Ok(());
             }
             Code::SingleMapped => self.info.single_mapped += 1,
@@ -316,7 +412,7 @@ impl Accum<'_> {
                 }
                 _ => NO_FEATURE,
             };
-            self.scored.push((feat, score, score + alnlen));
+            self.scored.push((feat, score, score + alnlen, k));
         }
         if self.scored.is_empty() {
             return Err(invalid(format!(
@@ -327,6 +423,11 @@ impl Accum<'_> {
         let ambig = (self.scored.len() > 1) as usize;
         if self.scored.iter().all(|s| s.0 == NO_FEATURE) {
             self.nofeat[ambig] += 1;
+            if let Some(other) = self.out.as_mut().and_then(|o| o.other.as_mut()) {
+                for &aln in &self.alns {
+                    write_aln(other, raw, aln)?;
+                }
+            }
             return Ok(());
         }
         self.feat[ambig] += 1;
@@ -334,18 +435,46 @@ impl Accum<'_> {
         // process_overlap_frag: best alignment per feature (first on ties),
         // then features ordered by that alignment's score, descending.
         self.by_feat.clear();
-        for &(feat, score, total) in &self.scored {
+        for (si, &(feat, score, total, _)) in self.scored.iter().enumerate() {
             match self.by_feat.iter_mut().find(|e| e.0 == feat) {
-                Some(e) if total > e.2 => *e = (feat, score, total),
+                Some(e) if total > e.2 => *e = (feat, score, total, si),
                 Some(_) => {}
-                None => self.by_feat.push((feat, score, total)),
+                None => self.by_feat.push((feat, score, total, si)),
             }
         }
         self.by_feat.sort_by_key(|e| std::cmp::Reverse(e.1));
 
         let next_row = self.rows.len() as u32;
         let row = *self.rows.entry(name_hash(name)).or_insert(next_row);
-        for &(feat, _, total) in &self.by_feat {
+        if let Some(out) = self.out.as_mut() {
+            // ZF = the alignment's feature, ZT = PRI for the feature's best
+            // alignment and SEC for the rest, ZB = the top-scoring feature(s).
+            let feat_name = |f: u32| -> &str {
+                if f == NO_FEATURE { &self.opts.no_feature_key } else { &self.annot.loci[f as usize] }
+            };
+            let top_score = self.by_feat[0].1;
+            let best: Vec<&str> =
+                self.by_feat.iter().filter(|e| e.1 == top_score).map(|e| feat_name(e.0)).collect();
+            let best = best.join(",");
+            for (si, &(feat, _, _, k)) in self.scored.iter().enumerate() {
+                let is_top = self.by_feat.iter().any(|e| e.0 == feat && e.3 == si);
+                let aln = self.alns[k];
+                for r in std::iter::once(aln.r1).chain(aln.r2) {
+                    set_tag(&mut raw[r], TAG_FEATURE, Value::String(feat_name(feat).into()));
+                    set_tag(&mut raw[r], TAG_RANK, Value::String(if is_top { "PRI" } else { "SEC" }.into()));
+                }
+            }
+            for &(_, _, _, k) in &self.scored {
+                let aln = self.alns[k];
+                for r in std::iter::once(aln.r1).chain(aln.r2) {
+                    set_tag(&mut raw[r], TAG_BEST, Value::String(best.as_str().into()));
+                }
+            }
+            for &aln in &self.alns {
+                write_aln(&mut out.tagged, raw, aln)?;
+            }
+        }
+        for &(feat, _, total, _) in &self.by_feat {
             let col = if feat == NO_FEATURE {
                 0
             } else {
@@ -362,9 +491,16 @@ impl Accum<'_> {
     }
 }
 
-pub fn load(bam_path: &str, annot: &Annotation, opts: &LoadOptions) -> io::Result<Loaded> {
-    let mut reader = bam::io::reader::Builder.build_from_path(bam_path)?;
-    let header = reader.read_header()?;
+/// `out`: where to send records for `--updated_sam` (None = report only).
+pub fn load(
+    path: &str,
+    annot: &Annotation,
+    opts: &LoadOptions,
+    out: Option<SamOutputs>,
+) -> io::Result<Loaded> {
+    let mut reader = AlignmentReader::open(path)?;
+    let header = reader.header.clone();
+    let keep_records = out.is_some();
     let ref_names: Vec<String> = header
         .reference_sequences()
         .keys()
@@ -392,20 +528,23 @@ pub fn load(bam_path: &str, annot: &Annotation, opts: &LoadOptions) -> io::Resul
         hits: Scratch::default(),
         scored: Vec::new(),
         by_feat: Vec::new(),
+        out,
     };
 
     // Records of the current bundle; slots are reused across bundles.
     let mut pool: Vec<Rec> = Vec::new();
     let mut n = 0usize;
     let mut cur_name: Vec<u8> = Vec::new();
+    let mut raw: Vec<RecordBuf> = Vec::new();
     let mut record = RecordBuf::default();
     loop {
-        if reader.read_record_buf(&header, &mut record)? == 0 {
+        if reader.read(&mut record)? == 0 {
             break;
         }
         let name: &[u8] = record.name().map_or(&[][..], |nm| nm.as_ref());
         if n > 0 && name != cur_name.as_slice() {
-            acc.bundle(&cur_name, &pool[..n])?;
+            let held = if keep_records { n } else { 0 };
+            acc.bundle(&cur_name, &pool[..n], &mut raw[..held])?;
             n = 0;
         }
         if n == 0 {
@@ -416,10 +555,24 @@ pub fn load(bam_path: &str, annot: &Annotation, opts: &LoadOptions) -> io::Resul
             pool.push(Rec::default());
         }
         pool[n].fill(&record, &as_tag);
+        if keep_records {
+            if n == raw.len() {
+                raw.push(record.clone());
+            } else {
+                raw[n].clone_from(&record);
+            }
+        }
         n += 1;
     }
     if n > 0 {
-        acc.bundle(&cur_name, &pool[..n])?;
+        let held = if keep_records { n } else { 0 };
+        acc.bundle(&cur_name, &pool[..n], &mut raw[..held])?;
+    }
+    if let Some(out) = acc.out.take() {
+        out.tagged.finish()?;
+        if let Some(other) = out.other {
+            other.finish()?;
+        }
     }
 
     // _mapping_to_matrix: value = (AS - minAS + 1) + alnlen, max per cell.
@@ -427,7 +580,7 @@ pub fn load(bam_path: &str, annot: &Annotation, opts: &LoadOptions) -> io::Resul
     info.unique = nofeat[0] + feat[0];
     info.ambig = nofeat[1] + feat[1];
     let n_rows = rows.len();
-    drop(rows);
+    let rows = keep_records.then_some(rows);
     let n_cols = col_locus.len() + 1;
 
     triples.sort_unstable();
@@ -478,6 +631,8 @@ pub fn load(bam_path: &str, annot: &Annotation, opts: &LoadOptions) -> io::Resul
         feat_lengths,
         info,
         tied_alignments: tied,
+        rows,
+        header,
     })
 }
 

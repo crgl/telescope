@@ -73,47 +73,36 @@ fn for_best_hits(m: &ScoreMatrix, w: Weights, best: &mut Vec<usize>, mut f: impl
     }
 }
 
-pub fn reassign(
+/// Core of `TelescopeLikelihood.reassign`: calls `emit(entry, value)` for
+/// every nonzero cell of the reassignment matrix, in row-major order.
+fn reassign_with(
     m: &ScoreMatrix,
     w: Weights,
     mode: ReassignMode,
     thresh: f64,
     rng: &mut Mt19937,
-) -> Column {
-    let col = |k: usize| m.indices[k] as usize;
+    mut emit: impl FnMut(usize, f64),
+) {
     let z = w.z;
     let mut best = Vec::new();
     match mode {
-        ReassignMode::Exclude => {
-            let mut out = vec![0i64; m.n_cols];
-            for_best_hits(m, w, &mut best, |b| {
-                if b.len() == 1 {
-                    out[col(b[0])] += 1;
-                }
-            });
-            Column::Int(out)
-        }
-        ReassignMode::Choose => {
-            let mut out = vec![0i64; m.n_cols];
-            for_best_hits(m, w, &mut best, |b| match b.len() {
-                0 => {}
-                1 => out[col(b[0])] += 1,
-                n => out[col(b[rng.choice(n as u32) as usize])] += 1,
-            });
-            Column::Int(out)
-        }
-        ReassignMode::Average => {
-            let mut out = vec![0.0; m.n_cols];
-            for_best_hits(m, w, &mut best, |b| {
-                let share = recip0(b.len() as f64);
-                for &k in b {
-                    out[col(k)] += share;
-                }
-            });
-            Column::Float(out)
-        }
+        ReassignMode::Exclude => for_best_hits(m, w, &mut best, |b| {
+            if b.len() == 1 {
+                emit(b[0], 1.0);
+            }
+        }),
+        ReassignMode::Choose => for_best_hits(m, w, &mut best, |b| match b.len() {
+            0 => {}
+            1 => emit(b[0], 1.0),
+            n => emit(b[rng.choice(n as u32) as usize], 1.0),
+        }),
+        ReassignMode::Average => for_best_hits(m, w, &mut best, |b| {
+            let share = recip0(b.len() as f64);
+            for &k in b {
+                emit(k, share);
+            }
+        }),
         ReassignMode::Conf => {
-            let mut out = vec![0.0; m.n_cols];
             let mut kept = Vec::new();
             for i in 0..m.n_rows {
                 let r = m.row(i);
@@ -123,23 +112,51 @@ pub fn reassign(
                 );
                 let recip = recip0(reduceat_sum(&kept));
                 for (k, &v) in r.filter(|&k| w.present(k)).zip(&kept) {
-                    out[col(k)] += v * recip;
+                    emit(k, v * recip);
                 }
             }
-            Column::Float(out)
         }
         ReassignMode::Unique => {
-            let mut out = vec![0i64; m.n_cols];
             for i in 0..m.n_rows {
                 if !m.is_ambiguous(i) {
                     for k in m.row(i) {
-                        out[col(k)] += z[k].ceil() as u8 as i64;
+                        emit(k, z[k].ceil() as u8 as f64);
                     }
                 }
             }
-            Column::Int(out)
         }
     }
+}
+
+/// Per-feature totals of the reassignment matrix (a report column).
+pub fn reassign(
+    m: &ScoreMatrix,
+    w: Weights,
+    mode: ReassignMode,
+    thresh: f64,
+    rng: &mut Mt19937,
+) -> Column {
+    let mut out = vec![0.0; m.n_cols];
+    reassign_with(m, w, mode, thresh, rng, |k, v| out[m.indices[k] as usize] += v);
+    match mode {
+        ReassignMode::Average | ReassignMode::Conf => Column::Float(out),
+        // whole-number counts: exact in f64
+        _ => Column::Int(out.into_iter().map(|x| x as i64).collect()),
+    }
+}
+
+/// The reassignment matrix itself, parallel to the score matrix's entries:
+/// a positive value means the fragment was assigned to that feature.
+pub fn reassign_entries(
+    m: &ScoreMatrix,
+    w: Weights,
+    mode: ReassignMode,
+    thresh: f64,
+    rng: &mut Mt19937,
+) -> Vec<f64> {
+    let mut out = vec![0.0; m.data.len()];
+    reassign_with(m, w, mode, thresh, rng, |k, v| out[k] = v);
+    out
 }
 
 /// `reassign('all', initial=True)`: every candidate with nonzero weight.
@@ -162,24 +179,23 @@ pub struct ReportInputs<'a> {
     pub version: &'a str,
     pub mode: ReassignMode,
     pub conf_prob: f64,
-    /// `Telescope.get_random_seed()`
-    pub seed: u32,
 }
 
-pub fn write_report(path: &str, r: &ReportInputs) -> io::Result<()> {
+/// `rng` is the run's generator, seeded from `Telescope.get_random_seed()`;
+/// it is shared with later steps because Telescope keeps drawing from it.
+pub fn write_report(path: &str, r: &ReportInputs, rng: &mut Mt19937) -> io::Result<()> {
     let (m, fit) = (r.matrix, r.fit);
     // Telescope evaluates these in this order; only `choose` draws random
     // numbers, so the order fixes which draws each column sees.
-    let mut rng = Mt19937::new(r.seed);
     let fin = Weights { z: &fit.z, absent: &fit.absent };
     let init = Weights { z: &fit.z_init, absent: &[] };
-    let final_count = reassign(m, fin, r.mode, r.conf_prob, &mut rng);
-    let final_conf = reassign(m, fin, ReassignMode::Conf, r.conf_prob, &mut rng);
+    let final_count = reassign(m, fin, r.mode, r.conf_prob, rng);
+    let final_conf = reassign(m, fin, ReassignMode::Conf, r.conf_prob, rng);
     let init_aligned = count_all(m, &fit.z_init);
-    let unique_count = reassign(m, fin, ReassignMode::Unique, r.conf_prob, &mut rng);
-    let init_best = reassign(m, init, ReassignMode::Exclude, r.conf_prob, &mut rng);
-    let init_random = reassign(m, init, ReassignMode::Choose, r.conf_prob, &mut rng);
-    let init_avg = reassign(m, init, ReassignMode::Average, r.conf_prob, &mut rng);
+    let unique_count = reassign(m, fin, ReassignMode::Unique, r.conf_prob, rng);
+    let init_best = reassign(m, init, ReassignMode::Exclude, r.conf_prob, rng);
+    let init_random = reassign(m, init, ReassignMode::Choose, r.conf_prob, rng);
+    let init_avg = reassign(m, init, ReassignMode::Average, r.conf_prob, rng);
 
     // Two stable descending sorts: by final_prop, then by final_count.
     let mut order: Vec<usize> = (0..m.n_cols).collect();

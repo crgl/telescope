@@ -6,6 +6,7 @@
 //!   * [`loader`]     - BAM streaming into a compact score matrix;
 //!   * [`model`]      - the reassignment model behind a trait;
 //!   * [`report`]     - reassignment modes and the report writer;
+//!   * [`updated_sam`] - the annotated BAM of `--updated_sam`;
 //!   * [`numpy`]      - numeric primitives matched to numpy/scipy;
 //!   * `pyset`/`pytree` - Python set and `intervaltree` ordering, which decide
 //!     ties between equally-overlapped loci in Telescope-compatible mode.
@@ -17,6 +18,7 @@ pub mod numpy;
 mod pyset;
 mod pytree;
 pub mod report;
+pub mod updated_sam;
 
 use std::io;
 use std::path::Path;
@@ -25,7 +27,9 @@ use clap::{Parser, ValueEnum};
 
 use crate::logging::{Logger, Verbosity, format_bytes, peak_rss_bytes};
 use annotation::{Annotation, OverlapCompat};
-use loader::{LoadOptions, Stranded};
+use loader::{AlignmentReader, BamOut, LoadOptions, SamOutputs, Stranded};
+use numpy::Mt19937;
+use updated_sam::Content;
 use model::{ReassignmentModel, TelescopeEm};
 use report::{ReassignMode, ReportInputs};
 
@@ -64,6 +68,23 @@ pub enum OverlapCompatArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ProfileArg {
+    /// Everything as Telescope does it
+    Legacy,
+    /// Corrected overlaps; updated BAM limited to assigned alignments
+    Standard,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum UpdatedSamContentArg {
+    /// Every alignment of every fragment that overlaps the annotation, plus
+    /// `other.bam` for the rest (what Telescope writes)
+    All,
+    /// Only the alignment each fragment was assigned to
+    Assigned,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ModelArg {
     /// Telescope's EM, bit-for-bit
     Telescope,
@@ -72,7 +93,7 @@ pub enum ModelArg {
 /// Option names and defaults follow `telescope assign`.
 #[derive(Parser, Debug)]
 pub struct AssignArgs {
-    /// Alignment file (BAM), collated so a fragment's alignments are adjacent
+    /// Alignment file (SAM or BAM), collated so a fragment's alignments are adjacent
     pub samfile: String,
 
     /// Annotation file (GTF)
@@ -134,9 +155,24 @@ pub struct AssignArgs {
     #[arg(long, value_enum, default_value = "telescope")]
     pub model: ModelArg,
 
-    /// How feature overlaps are computed
-    #[arg(long = "overlap_compat", value_enum, default_value = "telescope")]
-    pub overlap_compat: OverlapCompatArg,
+    /// Sets the defaults for the options below that have a Telescope-
+    /// compatible and a corrected behaviour
+    #[arg(long, value_enum, default_value = "legacy")]
+    pub profile: ProfileArg,
+
+    /// How feature overlaps are computed [default: telescope under the legacy
+    /// profile, corrected otherwise]
+    #[arg(long = "overlap_compat", value_enum)]
+    pub overlap_compat: Option<OverlapCompatArg>,
+
+    /// Generate an updated alignment file (<exp_tag>-updated.bam)
+    #[arg(long = "updated_sam")]
+    pub updated_sam: bool,
+
+    /// Which alignments the updated file holds [default: all under the
+    /// legacy profile, assigned otherwise]
+    #[arg(long = "updated_sam_content", value_enum)]
+    pub updated_sam_content: Option<UpdatedSamContentArg>,
 
     /// Silence progress output
     #[arg(long)]
@@ -164,14 +200,43 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         StrandedArg::Fr => Stranded::Fr,
         StrandedArg::F => Stranded::F,
     };
+    let legacy = args.profile == ProfileArg::Legacy;
     let compat = match args.overlap_compat {
-        OverlapCompatArg::Telescope => OverlapCompat::Telescope,
-        OverlapCompatArg::Corrected => OverlapCompat::Corrected,
+        Some(OverlapCompatArg::Telescope) => OverlapCompat::Telescope,
+        Some(OverlapCompatArg::Corrected) => OverlapCompat::Corrected,
+        None if legacy => OverlapCompat::Telescope,
+        None => OverlapCompat::Corrected,
+    };
+    let content = match args.updated_sam_content {
+        Some(UpdatedSamContentArg::All) => Content::All,
+        Some(UpdatedSamContentArg::Assigned) => Content::Assigned,
+        None if legacy => Content::All,
+        None => Content::Assigned,
+    };
+    let outfile = |suffix: &str| -> String {
+        Path::new(&args.outdir).join(format!("{}-{suffix}", args.exp_tag)).to_string_lossy().into_owned()
     };
 
     let annot = Annotation::from_gtf(&args.gtffile, &args.attribute, stranded != Stranded::None, compat)?;
     log.stage(&format!("Loaded {} features.", annot.loci.len()));
 
+    // Like Telescope, park overlapping fragments in <tag>-tmp_tele.bam while
+    // loading; Telescope leaves that file (and other.bam) behind, so the
+    // "all" content does too. The "assigned" content keeps only updated.bam.
+    let tagged_path = outfile("tmp_tele.bam");
+    let reader = AlignmentReader::open(&args.samfile)?;
+    let sam_out = if args.updated_sam {
+        Some(SamOutputs {
+            tagged: BamOut::create(&tagged_path, &reader.header)?,
+            other: match content {
+                Content::All => Some(BamOut::create(&outfile("other.bam"), &reader.header)?),
+                Content::Assigned => None,
+            },
+        })
+    } else {
+        None
+    };
+    drop(reader);
     let loaded = loader::load(
         &args.samfile,
         &annot,
@@ -180,6 +245,7 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
             stranded,
             no_feature_key: args.no_feature_key.clone(),
         },
+        sam_out,
     )?;
     drop(annot);
     let i = &loaded.info;
@@ -250,9 +316,10 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         ReassignModeArg::Conf => ReassignMode::Conf,
         ReassignModeArg::Unique => ReassignMode::Unique,
     };
-    let path = Path::new(&args.outdir).join(format!("{}-telescope_report.tsv", args.exp_tag));
+    let path = outfile("telescope_report.tsv");
+    let mut rng = Mt19937::new(seed);
     report::write_report(
-        &path.to_string_lossy(),
+        &path,
         &ReportInputs {
             matrix: m,
             fit: &fit,
@@ -262,10 +329,22 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
             version: REFERENCE_VERSION,
             mode,
             conf_prob: args.conf_prob,
-            seed,
         },
+        &mut rng,
     )?;
+    if args.updated_sam {
+        // Telescope recomputes the reassignment here, drawing from the same
+        // generator again in `choose` mode.
+        let weights = report::Weights { z: &fit.z, absent: &fit.absent };
+        let assigned = report::reassign_entries(m, weights, mode, args.conf_prob, &mut rng);
+        let updated = outfile("updated.bam");
+        updated_sam::write(&tagged_path, &updated, &loaded, &fit, &assigned, content)?;
+        if content == Content::Assigned {
+            std::fs::remove_file(&tagged_path)?;
+        }
+        log.stage(&format!("Wrote {updated}"));
+    }
     let rss = peak_rss_bytes().map(format_bytes).unwrap_or_else(|| "n/a".into());
-    log.stage(&format!("Wrote {} (peak memory {rss})", path.display()));
+    log.stage(&format!("Wrote {path} (peak memory {rss})"));
     Ok(())
 }

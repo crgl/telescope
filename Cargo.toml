@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-noodles = { version = "0.108.0", features = ["bam", "core", "sam"] }
+noodles = { version = "0.108.0", features = ["bam", "bgzf", "core", "sam"] }
 rayon = "1"
 regex = "1"
 rust-lapper = "1"
