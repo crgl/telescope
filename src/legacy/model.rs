@@ -60,6 +60,11 @@ pub struct TelescopeEm {
     pub epsilon: f64,
     pub max_iter: u32,
     pub use_likelihood: bool,
+    /// Telescope's model has a second per-feature parameter, theta, that
+    /// multiplies the weight of every *ambiguous* fragment (with its own
+    /// prior, `theta_prior`). `false` drops theta and its prior entirely,
+    /// leaving plain EM on the proportions pi; `theta_prior` is then unused.
+    pub use_theta: bool,
 }
 
 const SCALE_FACTOR: f64 = 100.0;
@@ -119,10 +124,10 @@ impl TelescopeEm {
     }
 
     /// Unnormalised E-step numerators: `Q * pi * theta` for ambiguous
-    /// fragments, `Q * pi` otherwise.
-    fn numerators(m: &ScoreMatrix, q: &[f64], pi: &[f64], theta: &[f64], out: &mut [f64]) {
+    /// fragments, `Q * pi` otherwise (and everywhere when theta is off).
+    fn numerators(m: &ScoreMatrix, q: &[f64], pi: &[f64], theta: Option<&[f64]>, out: &mut [f64]) {
         for i in 0..m.n_rows {
-            if m.is_ambiguous(i) {
+            if let (Some(theta), true) = (theta, m.is_ambiguous(i)) {
                 for k in m.row(i) {
                     let c = m.indices[k] as usize;
                     out[k] = q[k] * (pi[c] * theta[c]);
@@ -135,7 +140,7 @@ impl TelescopeEm {
         }
     }
 
-    fn lnl(m: &ScoreMatrix, q: &[f64], z: &[f64], pi: &[f64], theta: &[f64], buf: &mut [f64]) -> f64 {
+    fn lnl(m: &ScoreMatrix, q: &[f64], z: &[f64], pi: &[f64], theta: Option<&[f64]>, buf: &mut [f64]) -> f64 {
         Self::numerators(m, q, pi, theta, buf);
         let rows: Vec<f64> = (0..m.n_rows)
             .map(|i| {
@@ -186,7 +191,7 @@ impl ReassignmentModel for TelescopeEm {
         while !(converged || reached_max) {
             // E-step into z_prev's storage, then swap.
             let z_new = &mut z_prev;
-            Self::numerators(m, &pre.q, &pi, &theta, z_new);
+            Self::numerators(m, &pre.q, &pi, self.use_theta.then_some(&theta[..]), z_new);
             // Row-normalise. scipy's sparse add drops numerators that are
             // exactly zero before the row is summed, which changes how the
             // remaining values pair up in the sum.
@@ -225,8 +230,13 @@ impl ReassignmentModel for TelescopeEm {
                     }
                 }
             }
-            let theta_new: Vec<f64> =
-                thetasum.iter().map(|&t| (t + pre.theta_prior_wt) / theta_denom).collect();
+            // `thetasum` is the ambiguous fragments' weighted mass per feature;
+            // pi needs it either way, theta only when the model has one.
+            let theta_new: Vec<f64> = if self.use_theta {
+                thetasum.iter().map(|&t| (t + pre.theta_prior_wt) / theta_denom).collect()
+            } else {
+                Vec::new()
+            };
             let pi_new: Vec<f64> = (0..k)
                 .map(|j| ((pre.pisum0[j] + thetasum[j]) + pre.pi_prior_wt) / pi_denom)
                 .collect();
@@ -241,7 +251,7 @@ impl ReassignmentModel for TelescopeEm {
             let diff_est = np_sum(&diffs);
 
             if self.use_likelihood {
-                let cur = Self::lnl(m, &pre.q, z_new, &pi_new, &theta_new, &mut scratch);
+                let cur = Self::lnl(m, &pre.q, z_new, &pi_new, self.use_theta.then_some(&theta_new[..]), &mut scratch);
                 progress(&format!("Iteration {inum}, lnl= {cur:.5e}, diff={diff_est:.5e}"));
                 converged = (cur - lnl).abs() < self.epsilon;
                 lnl = cur;
@@ -257,7 +267,7 @@ impl ReassignmentModel for TelescopeEm {
         drop(z_prev);
         if !self.use_likelihood {
             let mut buf = vec![0.0; m.data.len()];
-            lnl = Self::lnl(m, &pre.q, &z, &pi, &theta, &mut buf);
+            lnl = Self::lnl(m, &pre.q, &z, &pi, self.use_theta.then_some(&theta[..]), &mut buf);
         }
 
         let mut z_init = pre.q;

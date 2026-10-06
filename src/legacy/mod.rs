@@ -26,7 +26,7 @@ use std::path::Path;
 use clap::{Parser, ValueEnum};
 
 use crate::logging::{Logger, Verbosity, format_bytes, peak_rss_bytes};
-use annotation::{Annotation, OverlapCompat};
+use annotation::{Annotation, OverlapCompat, OverlapRules};
 use loader::{AlignmentReader, BamOut, LoadOptions, SamOutputs, Stranded};
 use numpy::Mt19937;
 use updated_sam::Content;
@@ -85,9 +85,21 @@ pub enum UpdatedSamContentArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum FloatSumsArg {
+    Numpy,
+    Sequential,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ModelArg {
     /// Telescope's EM, bit-for-bit
     Telescope,
+    /// Telescope's EM without theta, the extra per-feature weight applied to
+    /// ambiguous fragments: plain EM on the proportions. Loading, overlap
+    /// rules, reassignment modes and the report are unchanged;
+    /// --theta_prior has no effect
+    #[value(name = "no-theta")]
+    NoTheta,
 }
 
 /// Option names and defaults follow `telescope assign`.
@@ -165,6 +177,23 @@ pub struct AssignArgs {
     #[arg(long = "overlap_compat", value_enum)]
     pub overlap_compat: Option<OverlapCompatArg>,
 
+    /// Overlap coordinates only: Telescope's (shifted one base, abort on a
+    /// row bridging two intervals of its locus) or corrected
+    /// [default: follows --overlap_compat]
+    #[arg(long = "overlap_coords", value_enum)]
+    pub overlap_coords: Option<OverlapCompatArg>,
+
+    /// Ties between equally-overlapped loci only: Telescope's (Python set
+    /// order) or corrected (first locus in the GTF)
+    /// [default: follows --overlap_compat]
+    #[arg(long = "overlap_ties", value_enum)]
+    pub overlap_ties: Option<OverlapCompatArg>,
+
+    /// How floating-point sums are accumulated: as numpy does (needed for
+    /// bit-identical results) or plainly left to right
+    #[arg(long = "float_sums", value_enum, default_value = "numpy")]
+    pub float_sums: FloatSumsArg,
+
     /// Generate an updated alignment file (<exp_tag>-updated.bam)
     #[arg(long = "updated_sam")]
     pub updated_sam: bool,
@@ -207,6 +236,13 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         None if legacy => OverlapCompat::Telescope,
         None => OverlapCompat::Corrected,
     };
+    let pick = |arg: Option<OverlapCompatArg>| match arg {
+        Some(OverlapCompatArg::Telescope) => OverlapCompat::Telescope,
+        Some(OverlapCompatArg::Corrected) => OverlapCompat::Corrected,
+        None => compat,
+    };
+    let rules = OverlapRules { coords: pick(args.overlap_coords), ties: pick(args.overlap_ties) };
+    numpy::set_sequential_sums(args.float_sums == FloatSumsArg::Sequential);
     let content = match args.updated_sam_content {
         Some(UpdatedSamContentArg::All) => Content::All,
         Some(UpdatedSamContentArg::Assigned) => Content::Assigned,
@@ -217,8 +253,9 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         Path::new(&args.outdir).join(format!("{}-{suffix}", args.exp_tag)).to_string_lossy().into_owned()
     };
 
-    let annot = Annotation::from_gtf(&args.gtffile, &args.attribute, stranded != Stranded::None, compat)?;
+    let annot = Annotation::from_gtf(&args.gtffile, &args.attribute, stranded != Stranded::None, rules)?;
     log.stage(&format!("Loaded {} features.", annot.loci.len()));
+    log.detail(&format!("Annotation loaded; peak memory so far {}", peak_rss_bytes().map(format_bytes).unwrap_or_default()));
 
     // Like Telescope, park overlapping fragments in <tag>-tmp_tele.bam while
     // loading; Telescope leaves that file (and other.bam) behind, so the
@@ -267,7 +304,7 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         log.detail(&format!(
             "{} alignments overlapped two or more loci equally ({})",
             loaded.tied_alignments,
-            match compat {
+            match rules.ties {
                 OverlapCompat::Telescope => "resolved in Telescope's order",
                 OverlapCompat::Corrected => "resolved to the first locus in the GTF",
             }
@@ -283,7 +320,8 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
     let seed = ((i.total_fragments % m.n_rows as u64) * m.n_cols as u64 % 4294967295) as u32;
 
     let model: Box<dyn ReassignmentModel> = match args.model {
-        ModelArg::Telescope => Box::new(TelescopeEm {
+        ModelArg::Telescope | ModelArg::NoTheta => Box::new(TelescopeEm {
+            use_theta: args.model == ModelArg::Telescope,
             pi_prior: args.pi_prior,
             theta_prior: args.theta_prior,
             epsilon: args.em_epsilon,
@@ -291,11 +329,13 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
             use_likelihood: args.use_likelihood,
         }),
     };
+    let em_start = log.elapsed_secs();
     let fit = model.fit(m, &mut |line| log.detail(line));
     log.stage(&format!(
-        "EM {} after {} iterations. Final log-likelihood: {:.6}.",
+        "EM {} after {} iterations ({:.2}s). Final log-likelihood: {:.6}.",
         if fit.converged { "converged" } else { "terminated" },
         fit.iterations,
+        log.elapsed_secs() - em_start,
         fit.log_likelihood
     ));
 
