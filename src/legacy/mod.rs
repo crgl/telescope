@@ -85,6 +85,14 @@ pub enum UpdatedSamContentArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum TieHashArg {
+    /// Python 3.8 and newer
+    Python38,
+    /// Python 3.7 and older
+    Python37,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FloatSumsArg {
     Numpy,
     Sequential,
@@ -189,6 +197,12 @@ pub struct AssignArgs {
     #[arg(long = "overlap_ties", value_enum)]
     pub overlap_ties: Option<OverlapCompatArg>,
 
+    /// Which Python's hashing decides Telescope-compatible ties. Python 3.8
+    /// changed how tuples hash, so Telescope under 3.7 or older breaks ties
+    /// differently from Telescope under 3.8 or newer
+    #[arg(long = "tie_hash", value_enum, default_value = "python38")]
+    pub tie_hash: TieHashArg,
+
     /// How floating-point sums are accumulated: as numpy does (needed for
     /// bit-identical results) or plainly left to right
     #[arg(long = "float_sums", value_enum, default_value = "numpy")]
@@ -242,6 +256,7 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         None => compat,
     };
     let rules = OverlapRules { coords: pick(args.overlap_coords), ties: pick(args.overlap_ties) };
+    pyset::set_pre38_tuple_hash(args.tie_hash == TieHashArg::Python37);
     numpy::set_sequential_sums(args.float_sums == FloatSumsArg::Sequential);
     let content = match args.updated_sam_content {
         Some(UpdatedSamContentArg::All) => Content::All,

@@ -42,9 +42,28 @@ impl Default for PySet {
     }
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Python changed how tuples hash in 3.8. Telescope's tie-breaking follows
+/// the interpreter it runs under, so both algorithms are kept.
+static PRE_38_TUPLE_HASH: AtomicBool = AtomicBool::new(false);
+
+pub fn set_pre38_tuple_hash(on: bool) {
+    PRE_38_TUPLE_HASH.store(on, Ordering::Relaxed);
+}
+
 /// `hash((begin, end))` for two non-negative Python ints below 2**61 - 1
-/// (CPython's xxHash-style tuple hash; an int hashes to itself).
+/// (an int hashes to itself), as the selected Python version computes it.
 pub fn hash_interval(begin: u64, end: u64) -> u64 {
+    if PRE_38_TUPLE_HASH.load(Ordering::Relaxed) {
+        hash_interval_pre38(begin, end)
+    } else {
+        hash_interval_38(begin, end)
+    }
+}
+
+/// CPython 3.8+: xxHash-style tuple hash.
+fn hash_interval_38(begin: u64, end: u64) -> u64 {
     const P1: u64 = 11400714785074694791;
     const P2: u64 = 14029467366897019727;
     const P5: u64 = 2870177450012600261;
@@ -56,6 +75,20 @@ pub fn hash_interval(begin: u64, end: u64) -> u64 {
     }
     acc = acc.wrapping_add(2 ^ (P5 ^ 3527539));
     if acc == u64::MAX { 1546275796 } else { acc }
+}
+
+/// CPython <= 3.7: the multiplicative tuple hash.
+fn hash_interval_pre38(begin: u64, end: u64) -> u64 {
+    let mut x: u64 = 0x345678;
+    let mut mult: u64 = 1000003;
+    let mut len: u64 = 2;
+    for y in [begin, end] {
+        len -= 1;
+        x = (x ^ y).wrapping_mul(mult);
+        mult = mult.wrapping_add(82520 + len + len);
+    }
+    x = x.wrapping_add(97531);
+    if x == u64::MAX { u64::MAX - 1 } else { x }
 }
 
 fn insert_clean(table: &mut [Entry], mask: usize, key: u32, hash: u64) {
@@ -255,8 +288,10 @@ mod tests {
     #[test]
     fn tuple_hash_matches_cpython() {
         // hash((1, 2)) etc. on 64-bit CPython 3.10, as unsigned 64-bit.
-        assert_eq!(hash_interval(1, 2) as i64, -3550055125485641917);
-        assert_eq!(hash_interval(1410684, 1410774) as i64, -7529434180462733536);
+        assert_eq!(hash_interval_38(1, 2) as i64, -3550055125485641917);
+        assert_eq!(hash_interval_38(1410684, 1410774) as i64, -7529434180462733536);
+        // hash((1, 2)) on CPython 3.7
+        assert_eq!(hash_interval_pre38(1, 2) as i64, 3713081631934410656);
     }
 
     #[test]
