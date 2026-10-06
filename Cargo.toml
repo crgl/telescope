@@ -1,0 +1,16 @@
+[package]
+name = "rusty_telescope"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+noodles = { version = "0.108.0", features = ["bam", "core", "sam"] }
+rayon = "1"
+regex = "1"
+rust-lapper = "1"
+
+# Used only for getrusage() to report peak RSS in the run summary.
+# Target-conditional: not pulled in on non-Unix builds.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

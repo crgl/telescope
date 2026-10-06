@@ -63,3 +63,17 @@ telescope/telescope_id.py
 telescope/telescope_load.py
 telescope/telescope_tag.py
 telescope/utils/oldmodel.py
+
+
+# Added by cargo
+
+/target
+.DS_Store
+
+# Output from manual integration testing
+tele_out/
+
+# Internal notes
+for_the_bots/
+/.claude
+
