@@ -568,6 +568,11 @@ pub fn load(
         let held = if keep_records { n } else { 0 };
         acc.bundle(&cur_name, &pool[..n], &mut raw[..held])?;
     }
+    if acc.info.total_fragments == 0 {
+        // Telescope dies on an empty alignment file (StopIteration in
+        // fetch_bundle); an empty input is almost always an upstream failure.
+        return Err(invalid(format!("{path}: no alignment records")));
+    }
     if let Some(out) = acc.out.take() {
         out.tagged.finish()?;
         if let Some(other) = out.other {
