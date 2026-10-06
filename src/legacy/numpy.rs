@@ -5,11 +5,28 @@
 //! formatting. Each helper here mirrors one of those behaviours and was checked
 //! against numpy 1.26 / scipy 1.15.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// When set, every sum below is a plain left-to-right loop instead of
+/// numpy's blocked pairwise scheme (`--float_sums sequential`).
+static SEQUENTIAL_SUMS: AtomicBool = AtomicBool::new(false);
+
+pub fn set_sequential_sums(on: bool) {
+    SEQUENTIAL_SUMS.store(on, Ordering::Relaxed);
+}
+
+fn sequential() -> bool {
+    SEQUENTIAL_SUMS.load(Ordering::Relaxed)
+}
+
 /// `ndarray.sum()` of a 1-D f64 array. numpy feeds the reduction through its
 /// 8192-element buffer, so the pairwise sum restarts every 8192 values and
 /// the block totals are added left to right.
 pub fn np_sum(a: &[f64]) -> f64 {
     const BUFSIZE: usize = 8192;
+    if sequential() {
+        return a.iter().sum();
+    }
     let mut chunks = a.chunks(BUFSIZE);
     let mut acc = chunks.next().map_or(0.0, pairwise_sum);
     for c in chunks {
@@ -54,6 +71,9 @@ pub fn pairwise_sum(a: &[f64]) -> f64 {
 /// One segment of `np.add.reduceat`, which is how scipy sums a CSR row: the
 /// first element seeds the accumulator and the rest are pairwise-summed.
 pub fn reduceat_sum(a: &[f64]) -> f64 {
+    if sequential() {
+        return a.iter().sum();
+    }
     match a.len() {
         0 => 0.0,
         1 => a[0],

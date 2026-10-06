@@ -32,6 +32,17 @@ pub enum OverlapCompat {
     Corrected,
 }
 
+/// The two independent overlap behaviours behind [`OverlapCompat`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OverlapRules {
+    /// Telescope's shifted coordinates (and its abort on bridging rows)
+    /// rather than true ones.
+    pub coords: OverlapCompat,
+    /// Ties between equally-overlapped loci: Python set order (`Telescope`)
+    /// or first in the GTF (`Corrected`).
+    pub ties: OverlapCompat,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Feature {
     pub locus: u32,
@@ -45,6 +56,8 @@ pub struct Annotation {
     pub lengths: Vec<u64>,
     index: Index,
     stranded: bool,
+    /// 1 when alignment blocks are queried one base long, as Telescope does.
+    query_pad: i64,
 }
 
 enum Index {
@@ -80,7 +93,7 @@ impl Annotation {
         path: &str,
         attribute: &str,
         stranded: bool,
-        compat: OverlapCompat,
+        rules: OverlapRules,
     ) -> io::Result<Self> {
         // Same pattern Telescope hands to re.findall.
         let attr_re = Regex::new(r#"(\w+)\s+"(.+?)";"#).expect("static regex");
@@ -125,7 +138,7 @@ impl Annotation {
                     .map_err(|_| invalid(format!("{path}:{}: bad coordinate '{s}'", lineno + 1)))
             };
             let (start, end) = (parse(f[3])?, parse(f[4])?);
-            let (mut begin, mut stop) = match compat {
+            let (mut begin, mut stop) = match rules.coords {
                 OverlapCompat::Telescope => (start, end + 1),
                 OverlapCompat::Corrected => (start.saturating_sub(1), end),
             };
@@ -150,7 +163,7 @@ impl Annotation {
                 .take_while(|(_, (e, _, _))| *e > begin)
                 .map(|(b, _)| *b)
                 .collect();
-            if hits.len() > 1 && compat == OverlapCompat::Telescope {
+            if hits.len() > 1 && rules.coords == OverlapCompat::Telescope {
                 return Err(invalid(format!(
                     "{path}:{}: row overlaps {} existing intervals of locus {key_val}; \
                      Telescope aborts here (assert len(mergeable) == 1)",
@@ -162,13 +175,13 @@ impl Annotation {
                 let (e, _, old) = ivs.remove(&b).unwrap();
                 begin = begin.min(b);
                 stop = stop.max(e);
-                if compat == OverlapCompat::Telescope {
+                if rules.ties == OverlapCompat::Telescope {
                     trees[chrom as usize].remove_interval(old, &iv_table);
                     iv_table.release(old);
                 }
             }
             let mut id = 0;
-            if compat == OverlapCompat::Telescope {
+            if rules.ties == OverlapCompat::Telescope {
                 id = iv_table.push(Iv::new(begin, stop, locus, strand));
                 trees[chrom as usize].add(id, &iv_table);
             }
@@ -189,7 +202,7 @@ impl Annotation {
         }
         iv_table.shrink();
         trees.iter_mut().for_each(PyIntervalTree::shrink);
-        let index = match compat {
+        let index = match rules.ties {
             OverlapCompat::Telescope => Index::Telescope {
                 trees: chrom_names.into_iter().zip(trees).collect(),
                 ivs: iv_table,
@@ -202,7 +215,8 @@ impl Annotation {
                     .collect(),
             ),
         };
-        Ok(Annotation { loci, lengths, index, stranded })
+        let query_pad = (rules.coords == OverlapCompat::Telescope) as i64;
+        Ok(Annotation { loci, lengths, index, stranded, query_pad })
     }
 
     /// Telescope's `intersect_blocks` + `most_common()[0]`: total overlap per
@@ -231,7 +245,7 @@ impl Annotation {
             Index::Telescope { trees, ivs } => {
                 let tree = trees.get(chrom)?;
                 for &(bs, be) in blocks {
-                    let (qs, qe) = (bs.max(0) as u64, (be + 1).max(0) as u64);
+                    let (qs, qe) = (bs.max(0) as u64, (be + self.query_pad).max(0) as u64);
                     tree.overlap(qs, qe, result, points, ivs);
                     for id in result.iter() {
                         let iv = ivs.get(id);
@@ -242,7 +256,7 @@ impl Annotation {
             Index::Corrected(chroms) => {
                 let tree = chroms.get(chrom)?;
                 for &(bs, be) in blocks {
-                    let (qs, qe) = (bs.max(0) as u64, be.max(0) as u64);
+                    let (qs, qe) = (bs.max(0) as u64, (be + self.query_pad).max(0) as u64);
                     if qe <= qs {
                         continue;
                     }
