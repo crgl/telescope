@@ -19,6 +19,8 @@ rusty_telescope <COMMAND> [OPTIONS]
 
 ## `assign`: Telescope-compatible mode
 
+> **Reference version.** `assign` is built to match **Telescope v1.0.4.1 from the [hanalysis fork](https://github.com/hanalysis/telescope)** (commit `bb58c43`, the Python code in this repository's `telescope/` directory), run under Python 3.8 or newer. That fork differs from the original `mlbendall/telescope` in adding `--stranded_mode` and in how it handles unpaired reads within paired-end data, so results are not claimed to match other Telescope releases.
+
 ```bash
 # Same call shape as `telescope assign`
 rusty_telescope assign alignments.bam annotation.gtf --outdir results --exp_tag sample1
@@ -121,6 +123,15 @@ Against the Python 3.7 environment (older numpy and scipy, run under Rosetta) a 
 On the heaviest run (about 230 million alignment records, HERV+genes annotation) Python Telescope took 63 minutes and 25.3 GB; `assign` took 2.5 minutes and 3.4 GB. The other HERV+genes runs were 4-24 minutes and 4-10 GB against 17-44 seconds and 0.5-1 GB.
 
 Not yet covered: coordinate-sorted input, input from Linux or other numpy/scipy versions, and full-depth (unsubsampled) data.
+
+### Regression tests
+
+`cargo test` checks `assign` against the reference without needing Python or any external data:
+
+- `tests/legacy.rs` uses the test data Telescope ships.
+- `tests/legacy_fixtures.rs` runs 23 cases over small real-data fixtures in `tests/data/legacy/` (about 12 MB), each with the report Python Telescope produced. They cover paired and single-end reads, stranded and unstranded libraries, HISAT2, bowtie2 and STAR, long reads with supplementary alignments, SAM input, a GTF with mangled quoting, every reassign mode, `--theta_prior 0`, and Telescope under both Python 3.7 and 3.10. One fixture is sized so that numpy's summation order and the zero-weight rule change the answer if they are not reproduced.
+
+`tests/data/legacy/README.md` says what each fixture is for and how it was made.
 
 ## `annotate` and `detect-strand`
 

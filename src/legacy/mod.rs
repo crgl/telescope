@@ -354,6 +354,21 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         fit.log_likelihood
     ));
 
+    // What a dataset exercises: the numpy-style sums only differ from plain
+    // ones on long rows (9+ candidates) or long vectors (8192+), and the
+    // zero-weight rule only when a candidate underflows.
+    let row_len = |r: usize| m.indptr[r + 1] - m.indptr[r];
+    log.detail(&format!(
+        "Matrix: {} fragments x {} features, {} entries; longest row {}, rows with 9+ candidates {}; \
+         candidates dropped at zero weight in the last iteration {}",
+        m.n_rows,
+        m.n_cols,
+        m.data.len(),
+        (0..m.n_rows).map(row_len).max().unwrap_or(0),
+        (0..m.n_rows).filter(|&r| row_len(r) >= 9).count(),
+        fit.absent.iter().filter(|&&a| a).count()
+    ));
+
     // Developer aid for chasing last-bit differences against the reference:
     // RUSTY_TELESCOPE_DUMP_PI=<path> writes feature, pi and pi_init as exact hex floats.
     if let Ok(dump) = std::env::var("RUSTY_TELESCOPE_DUMP_PI") {
