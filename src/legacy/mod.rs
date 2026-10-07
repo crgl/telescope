@@ -17,6 +17,7 @@ pub mod model;
 pub mod numpy;
 mod pyset;
 mod pytree;
+mod rawbam;
 pub mod report;
 pub mod updated_sam;
 
@@ -27,7 +28,8 @@ use clap::{Parser, ValueEnum};
 
 use crate::logging::{Logger, Verbosity, format_bytes, peak_rss_bytes};
 use annotation::{Annotation, OverlapCompat, OverlapRules};
-use loader::{AlignmentReader, BamOut, LoadOptions, SamOutputs, Stranded};
+use loader::{LoadOptions, SamOutputs, Stranded};
+use rawbam::{CompressionLevel, RawReader, RawWriter};
 use numpy::Mt19937;
 use updated_sam::Content;
 use model::{ReassignmentModel, TelescopeEm};
@@ -276,12 +278,13 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
     // loading; Telescope leaves that file (and other.bam) behind, so the
     // "all" content does too. The "assigned" content keeps only updated.bam.
     let tagged_path = outfile("tmp_tele.bam");
-    let reader = AlignmentReader::open(&args.samfile)?;
+    let reader = RawReader::open(&args.samfile)?;
     let sam_out = if args.updated_sam {
         Some(SamOutputs {
-            tagged: BamOut::create(&tagged_path, &reader.header)?,
+            // The tagged file is an intermediate, read back once: compress it lightly.
+            tagged: RawWriter::create(&tagged_path, &reader.header, CompressionLevel::FAST)?,
             other: match content {
-                Content::All => Some(BamOut::create(&outfile("other.bam"), &reader.header)?),
+                Content::All => Some(RawWriter::create(&outfile("other.bam"), &reader.header, CompressionLevel::default())?),
                 Content::Assigned => None,
             },
         })

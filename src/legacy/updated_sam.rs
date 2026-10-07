@@ -16,16 +16,8 @@
 use std::collections::HashMap;
 use std::io;
 
-use noodles::sam::alignment::{
-    RecordBuf,
-    record::{Flags, MappingQuality, data::field::Tag},
-    record_buf::data::field::Value,
-};
-
-use super::loader::{
-    AlignmentReader, Aln, BamOut, Loaded, MateKey, Rec, TAG_FEATURE, TAG_RANK, classify, name_hash,
-    set_tag,
-};
+use super::loader::{Aln, Loaded, MateKey, Rec, TAG_FEATURE, TAG_RANK, classify, name_hash};
+use super::rawbam::{CompressionLevel, Raw, RawReader, RawWriter, set_flag, set_mapq, set_tag_str, set_tag_u8};
 use super::model::ModelFit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,8 +26,8 @@ pub enum Content {
     Assigned,
 }
 
-const TAG_PERCENT: Tag = Tag::new(b'X', b'P');
-const TAG_COLOUR: Tag = Tag::new(b'Y', b'C');
+const TAG_PERCENT: [u8; 2] = *b"XP";
+const TAG_COLOUR: [u8; 2] = *b"YC";
 const SECONDARY: u16 = 0x100;
 // colors.py: (248,248,248), D2PAL['vermilion'], D2PAL['yellow'], GPAL[2]
 const GREY: &str = "248,248,248";
@@ -46,13 +38,6 @@ const PALE_GREEN: &str = "209,236,228";
 /// `helpers.phred`
 fn phred(p: f64) -> u8 {
     if p < 1.0 { (-10.0 * (1.0 - p).log10()).round_ties_even() as u8 } else { 255 }
-}
-
-fn string_tag(rec: &RecordBuf, tag: Tag) -> Option<&[u8]> {
-    match rec.data().get(&tag)? {
-        Value::String(s) => Some(s.as_ref()),
-        _ => None,
-    }
 }
 
 fn invalid(msg: &str) -> io::Error {
@@ -74,19 +59,18 @@ pub fn write(
     let cols: HashMap<&[u8], u32> =
         loaded.feat_names.iter().enumerate().map(|(j, n)| (n.as_bytes(), j as u32)).collect();
 
-    let mut reader = AlignmentReader::open(tagged_path)?;
-    let mut out = BamOut::create(out_path, &loaded.header)?;
-    let as_tag = Tag::ALIGNMENT_SCORE;
+    let mut reader = RawReader::open(tagged_path)?;
+    let mut out = RawWriter::create(out_path, &loaded.header, CompressionLevel::default())?;
 
     let mut recs: Vec<Rec> = Vec::new();
-    let mut raw: Vec<RecordBuf> = Vec::new();
+    let mut raw: Vec<Vec<u8>> = Vec::new();
     let mut n = 0usize;
     let mut cur_name: Vec<u8> = Vec::new();
     let mut alns: Vec<Aln> = Vec::new();
     let mut cache: Vec<(MateKey, usize, bool)> = Vec::new();
-    let mut record = RecordBuf::default();
+    let mut record: Vec<u8> = Vec::new();
 
-    let mut flush = |name: &[u8], recs: &[Rec], raw: &mut [RecordBuf]| -> io::Result<()> {
+    let mut flush = |name: &[u8], recs: &[Rec], raw: &mut [Vec<u8>]| -> io::Result<()> {
         // Telescope re-reads its temporary BAM with the same fragment logic.
         classify(recs, &mut alns, &mut cache);
         let row = *rows.get(&name_hash(name)).ok_or_else(|| invalid("tagged read missing from matrix"))? as usize;
@@ -100,14 +84,14 @@ pub fn write(
                 }
                 continue;
             }
-            let rank = string_tag(&raw[aln.r1], TAG_RANK).ok_or_else(|| invalid("Missing ZT tag"))?;
+            let rank = Raw(&raw[aln.r1]).aux_str(TAG_RANK).ok_or_else(|| invalid("Missing ZT tag"))?;
             let (mapq, percent, secondary, colour) = if rank == b"SEC" {
                 if content == Content::Assigned {
                     continue;
                 }
                 (0, None, true, GREY)
             } else {
-                let feat = string_tag(&raw[aln.r1], TAG_FEATURE).ok_or_else(|| invalid("Missing ZF tag"))?;
+                let feat = Raw(&raw[aln.r1]).aux_str(TAG_FEATURE).ok_or_else(|| invalid("Missing ZF tag"))?;
                 let col = *cols.get(feat).ok_or_else(|| invalid("unknown feature in ZF tag"))?;
                 let entry = m.row(row).find(|&k| m.indices[k] == col);
                 let prob = entry.map_or(0.0, |k| fit.z[k]);
@@ -127,24 +111,21 @@ pub fn write(
             };
             for r in members() {
                 let rec = &mut raw[r];
-                let bits = u16::from(rec.flags());
-                *rec.flags_mut() = Flags::from(if secondary { bits | SECONDARY } else { bits & !SECONDARY });
-                *rec.mapping_quality_mut() = MappingQuality::new(mapq);
+                let bits = Raw(rec).flag();
+                set_flag(rec, if secondary { bits | SECONDARY } else { bits & !SECONDARY });
+                set_mapq(rec, mapq);
                 if let Some(p) = percent {
-                    set_tag(rec, TAG_PERCENT, Value::UInt8(p));
+                    set_tag_u8(rec, TAG_PERCENT, p);
                 }
-                set_tag(rec, TAG_COLOUR, Value::String(colour.into()));
+                set_tag_str(rec, TAG_COLOUR, colour.as_bytes());
                 out.write(rec)?;
             }
         }
         Ok(())
     };
 
-    loop {
-        if reader.read(&mut record)? == 0 {
-            break;
-        }
-        let name: &[u8] = record.name().map_or(&[][..], |nm| nm.as_ref());
+    while reader.read(&mut record)? {
+        let name = Raw(&record).name();
         if n > 0 && name != cur_name.as_slice() {
             flush(&cur_name, &recs[..n], &mut raw[..n])?;
             n = 0;
@@ -155,9 +136,9 @@ pub fn write(
         }
         if n == recs.len() {
             recs.push(Rec::default());
-            raw.push(RecordBuf::default());
+            raw.push(Vec::new());
         }
-        recs[n].fill(&record, &as_tag);
+        recs[n].fill(Raw(&record));
         raw[n].clone_from(&record);
         n += 1;
     }

@@ -13,23 +13,12 @@
 
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
-use std::fs::File;
 use std::hash::{Hash, Hasher};
-use std::io::{self, BufReader, Read};
+use std::io;
 
-use noodles::{
-    bam,
-    sam::{
-        self, Header,
-        alignment::{
-            RecordBuf,
-            io::Write as AlignmentWrite,
-            record::{cigar::op::Kind, data::field::Tag},
-            record_buf::data::field::Value,
-        },
-    },
-};
+use noodles::sam::Header;
 
+use super::rawbam::{Raw, RawReader, RawWriter, set_tag_str};
 use super::annotation::{Annotation, Scratch};
 use super::model::ScoreMatrix;
 
@@ -99,70 +88,16 @@ pub struct Loaded {
     pub header: Header,
 }
 
-pub const TAG_FEATURE: Tag = Tag::new(b'Z', b'F');
-pub const TAG_RANK: Tag = Tag::new(b'Z', b'T');
-pub const TAG_BEST: Tag = Tag::new(b'Z', b'B');
-
-/// pysam's `set_tag(..., replace=True)`: drop any existing value, append.
-pub fn set_tag(rec: &mut RecordBuf, tag: Tag, value: Value) {
-    rec.data_mut().remove(&tag);
-    rec.data_mut().insert(tag, value);
-}
-
-type ReadFn = Box<dyn FnMut(&Header, &mut RecordBuf) -> io::Result<usize>>;
-
-/// Reads SAM or BAM (picked by content, as pysam does) one record at a time.
-pub struct AlignmentReader {
-    pub header: Header,
-    next: ReadFn,
-}
-
-impl AlignmentReader {
-    pub fn open(path: &str) -> io::Result<Self> {
-        let mut magic = [0u8; 2];
-        let n = File::open(path)?.read(&mut magic)?;
-        if n == 2 && magic == [0x1f, 0x8b] {
-            let mut r = bam::io::reader::Builder.build_from_path(path)?;
-            let header = r.read_header()?;
-            Ok(AlignmentReader { header, next: Box::new(move |h, buf| r.read_record_buf(h, buf)) })
-        } else {
-            let mut r = sam::io::Reader::new(BufReader::new(File::open(path)?));
-            let header = r.read_header()?;
-            Ok(AlignmentReader { header, next: Box::new(move |h, buf| r.read_record_buf(h, buf)) })
-        }
-    }
-
-    pub fn read(&mut self, buf: &mut RecordBuf) -> io::Result<usize> {
-        (self.next)(&self.header, buf)
-    }
-}
-
-/// A BAM being written with the input's header.
-pub struct BamOut {
-    header: Header,
-    writer: bam::io::Writer<noodles::bgzf::io::Writer<File>>,
-}
-
-impl BamOut {
-    pub fn create(path: &str, header: &Header) -> io::Result<Self> {
-        let mut writer = bam::io::Writer::new(File::create(path)?);
-        writer.write_header(header)?;
-        Ok(BamOut { header: header.clone(), writer })
-    }
-    pub fn write(&mut self, rec: &RecordBuf) -> io::Result<()> {
-        self.writer.write_alignment_record(&self.header, rec)
-    }
-    pub fn finish(mut self) -> io::Result<()> {
-        self.writer.try_finish()
-    }
-}
+pub const TAG_FEATURE: [u8; 2] = *b"ZF";
+pub const TAG_RANK: [u8; 2] = *b"ZT";
+pub const TAG_BEST: [u8; 2] = *b"ZB";
 
 /// Where the loader sends records when an updated BAM is requested.
 pub struct SamOutputs {
     /// Fragments that overlap the annotation, tagged, for the second pass.
-    pub tagged: BamOut,
+    pub tagged: RawWriter,
     /// Unmapped and non-overlapping fragments (Telescope's `other.bam`).
-    pub other: Option<BamOut>,
+    pub other: Option<RawWriter>,
 }
 
 #[derive(Default)]
@@ -202,28 +137,29 @@ impl Rec {
         (!self.is_read1(), self.mate_ref, self.mate_start, self.ref_id, self.start, self.tlen_abs)
     }
 
-    pub(super) fn fill(&mut self, rec: &RecordBuf, as_tag: &Tag) {
-        self.flag = u16::from(rec.flags());
-        self.ref_id = rec.reference_sequence_id().map_or(-1, |i| i as i32);
-        self.start = rec.alignment_start().map_or(-1, |p| usize::from(p) as i32 - 1);
-        self.mate_ref = rec.mate_reference_sequence_id().map_or(-1, |i| i as i32);
-        self.mate_start = rec.mate_alignment_start().map_or(-1, |p| usize::from(p) as i32 - 1);
-        self.tlen_abs = rec.template_length().unsigned_abs();
-        self.score = rec.data().get(as_tag).and_then(|v| v.as_int());
+    pub(super) fn fill(&mut self, rec: Raw) {
+        self.flag = rec.flag();
+        self.ref_id = rec.ref_id();
+        self.start = rec.pos();
+        self.mate_ref = rec.mate_ref_id();
+        self.mate_start = rec.mate_pos();
+        self.tlen_abs = rec.template_len().unsigned_abs();
+        self.score = rec.aux_int(*b"AS");
         // pysam's get_blocks(): gapless aligned runs, 0-based half-open.
         self.blocks.clear();
         let mut pos = self.start as i64;
-        for op in rec.cigar().as_ref() {
-            let len = op.len() as i64;
-            match op.kind() {
-                Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => {
-                    self.blocks.push((pos, pos + len));
+        let blocks = &mut self.blocks;
+        rec.for_each_cigar_op(|op, len| {
+            let len = len as i64;
+            match op {
+                0 | 7 | 8 => {
+                    blocks.push((pos, pos + len));
                     pos += len;
                 }
-                Kind::Deletion | Kind::Skip => pos += len,
+                2 | 3 => pos += len,
                 _ => {}
             }
-        }
+        });
     }
 }
 
@@ -351,7 +287,7 @@ struct Accum<'a> {
     out: Option<SamOutputs>,
 }
 
-fn write_aln(out: &mut BamOut, raw: &[RecordBuf], aln: Aln) -> io::Result<()> {
+fn write_aln(out: &mut RawWriter, raw: &[Vec<u8>], aln: Aln) -> io::Result<()> {
     out.write(&raw[aln.r1])?;
     if let Some(r2) = aln.r2 {
         out.write(&raw[r2])?;
@@ -361,7 +297,7 @@ fn write_aln(out: &mut BamOut, raw: &[RecordBuf], aln: Aln) -> io::Result<()> {
 
 impl Accum<'_> {
     /// `raw` holds the bundle's full records when BAM output is on (else empty).
-    fn bundle(&mut self, name: &[u8], recs: &[Rec], raw: &mut [RecordBuf]) -> io::Result<()> {
+    fn bundle(&mut self, name: &[u8], recs: &[Rec], raw: &mut [Vec<u8>]) -> io::Result<()> {
         self.info.total_fragments += 1;
         let code = classify(recs, &mut self.alns, &mut self.cache);
         match code {
@@ -460,14 +396,14 @@ impl Accum<'_> {
                 let is_top = self.by_feat.iter().any(|e| e.0 == feat && e.3 == si);
                 let aln = self.alns[k];
                 for r in std::iter::once(aln.r1).chain(aln.r2) {
-                    set_tag(&mut raw[r], TAG_FEATURE, Value::String(feat_name(feat).into()));
-                    set_tag(&mut raw[r], TAG_RANK, Value::String(if is_top { "PRI" } else { "SEC" }.into()));
+                    set_tag_str(&mut raw[r], TAG_FEATURE, feat_name(feat).as_bytes());
+                    set_tag_str(&mut raw[r], TAG_RANK, if is_top { b"PRI" } else { b"SEC" });
                 }
             }
             for &(_, _, _, k) in &self.scored {
                 let aln = self.alns[k];
                 for r in std::iter::once(aln.r1).chain(aln.r2) {
-                    set_tag(&mut raw[r], TAG_BEST, Value::String(best.as_str().into()));
+                    set_tag_str(&mut raw[r], TAG_BEST, best.as_bytes());
                 }
             }
             for &aln in &self.alns {
@@ -498,7 +434,7 @@ pub fn load(
     opts: &LoadOptions,
     out: Option<SamOutputs>,
 ) -> io::Result<Loaded> {
-    let mut reader = AlignmentReader::open(path)?;
+    let mut reader = RawReader::open(path)?;
     let header = reader.header.clone();
     let keep_records = out.is_some();
     let ref_names: Vec<String> = header
@@ -506,8 +442,6 @@ pub fn load(
         .keys()
         .map(|k| String::from_utf8_lossy(k.as_ref()).into_owned())
         .collect();
-    let as_tag = Tag::ALIGNMENT_SCORE;
-
     let mut acc = Accum {
         annot,
         opts,
@@ -535,13 +469,10 @@ pub fn load(
     let mut pool: Vec<Rec> = Vec::new();
     let mut n = 0usize;
     let mut cur_name: Vec<u8> = Vec::new();
-    let mut raw: Vec<RecordBuf> = Vec::new();
-    let mut record = RecordBuf::default();
-    loop {
-        if reader.read(&mut record)? == 0 {
-            break;
-        }
-        let name: &[u8] = record.name().map_or(&[][..], |nm| nm.as_ref());
+    let mut raw: Vec<Vec<u8>> = Vec::new();
+    let mut record: Vec<u8> = Vec::new();
+    while reader.read(&mut record)? {
+        let name = Raw(&record).name();
         if n > 0 && name != cur_name.as_slice() {
             let held = if keep_records { n } else { 0 };
             acc.bundle(&cur_name, &pool[..n], &mut raw[..held])?;
@@ -554,7 +485,7 @@ pub fn load(
         if n == pool.len() {
             pool.push(Rec::default());
         }
-        pool[n].fill(&record, &as_tag);
+        pool[n].fill(Raw(&record));
         if keep_records {
             if n == raw.len() {
                 raw.push(record.clone());
