@@ -90,3 +90,30 @@ fn updated_sam_default_keeps_only_assigned_alignments() {
     assert!(!updated.is_empty() && updated.len() <= 2000 && updated.len().is_multiple_of(2));
     assert!(updated.iter().all(|&(flag, has_xp)| flag & 0x100 == 0 && has_xp));
 }
+
+/// `gtf-ties` on the fixture annotation. The expected winners were confirmed
+/// against Telescope's own annotation class under Python 3.10 and 3.7
+/// (every region queried on its first base, one base in, and on its last base).
+#[test]
+fn gtf_ties_reports_telescope_winners() {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let data = format!("{root}/tests/data/legacy");
+    let out = std::env::temp_dir().join(format!("rusty_telescope_gtf_ties_{}", std::process::id()));
+    fs::create_dir_all(&out).unwrap();
+    for (hash, tag) in [("python38", "py310"), ("python37", "py37")] {
+        let status = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+            .args(["gtf-ties", "--quiet", "--attribute", "gene_id", "--tie_hash", hash, "--exp_tag", tag, "--outdir"])
+            .arg(&out)
+            .arg(format!("{data}/hg38_window_herv_genes.gtf"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let got = fs::read_to_string(out.join(format!("{tag}-tie_regions.tsv"))).unwrap();
+        let want = fs::read_to_string(format!("{data}/expected/gtf_ties.{tag}.tie_regions.tsv")).unwrap();
+        assert_eq!(got, want, "tie regions differ for {hash}");
+    }
+    let got = fs::read_to_string(out.join("py310-tie_loci.tsv")).unwrap();
+    let want = fs::read_to_string(format!("{data}/expected/gtf_ties.py310.tie_loci.tsv")).unwrap();
+    fs::remove_dir_all(&out).ok();
+    assert_eq!(got, want);
+}

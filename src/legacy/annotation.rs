@@ -219,6 +219,73 @@ impl Annotation {
         Ok(Annotation { loci, lengths, index, stranded, query_pad })
     }
 
+    /// Every stretch covered by two or more loci, with those loci in the
+    /// order Telescope's tie-break would consider them: a read lying wholly
+    /// inside the stretch overlaps them all equally and goes to the first.
+    ///
+    /// The order is not a property of the stretch alone. Telescope gathers
+    /// overlapping intervals into a Python set and then merges in a second
+    /// set built from every interval boundary the read spans; that merge can
+    /// resize the hash table and so reorder it. `visit` therefore gets two
+    /// orders: `inside`, for a read that spans no boundary (the usual case),
+    /// and `at_start`, for a read that begins on the stretch's first base.
+    ///
+    /// `visit(chromosome, begin, end, inside, at_start)` gets stored
+    /// coordinates (`[begin, end)`; under Telescope's rules that is GTF bases
+    /// `begin..=end-1`) and `(locus id, strand)` lists. Chromosomes come in
+    /// name order. Only available for Telescope-style ties.
+    pub fn shared_regions(&self, mut visit: impl FnMut(&str, u64, u64, &[(u32, u8)], &[(u32, u8)])) {
+        let Index::Telescope { trees, ivs } = &self.index else { return };
+        let mut chroms: Vec<&String> = trees.keys().collect();
+        chroms.sort();
+        let (mut result, mut points) = (PySet::new(), PySet::new());
+        type Order = Vec<(u32, u8)>;
+        for chrom in chroms {
+            let tree = &trees[chrom];
+            let mut order_at = |from: u64| -> Order {
+                let mut order = Order::new();
+                tree.overlap(from, from + 1, &mut result, &mut points, ivs);
+                for id in result.iter() {
+                    let iv = ivs.get(id);
+                    if !order.iter().any(|o| o.0 == iv.locus) {
+                        order.push((iv.locus, iv.strand));
+                    }
+                }
+                order
+            };
+            // +1 where an interval begins, -1 where it ends
+            let mut events: Vec<(u64, i32)> = Vec::new();
+            for id in tree.interval_ids() {
+                let iv = ivs.get(id);
+                events.push((iv.begin, 1));
+                events.push((iv.end, -1));
+            }
+            events.sort_unstable();
+            // Stretches run from one interval boundary to the next and are not
+            // joined, even when the same loci continue: a read crossing a
+            // boundary sees a differently built set and may resolve differently.
+            let mut depth = 0i32;
+            let mut i = 0;
+            while i < events.len() {
+                let pos = events[i].0;
+                while i < events.len() && events[i].0 == pos {
+                    depth += events[i].1;
+                    i += 1;
+                }
+                let Some(&(next, _)) = events.get(i) else { break };
+                if depth < 2 {
+                    continue;
+                }
+                let at_start = order_at(pos);
+                // one base in, the query spans no boundary
+                let inside = if next - pos >= 2 { order_at(pos + 1) } else { at_start.clone() };
+                if inside.len() >= 2 {
+                    visit(chrom, pos, next, &inside, &at_start);
+                }
+            }
+        }
+    }
+
     /// Telescope's `intersect_blocks` + `most_common()[0]`: total overlap per
     /// locus over the fragment's merged blocks, then the largest. Ties go to
     /// the locus encountered first.

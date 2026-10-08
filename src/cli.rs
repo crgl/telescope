@@ -60,6 +60,9 @@ pub enum Subcommand {
     /// Legacy mode: reproduce `telescope assign` exactly (same options and
     /// report), with far lower memory use.
     Assign(crate::legacy::AssignArgs),
+    /// List the regions of a GTF that two or more loci share, where `assign`
+    /// (like Telescope) picks one arbitrarily, and which locus wins each.
+    GtfTies(crate::legacy::gtf_ties::GtfTiesArgs),
 }
 
 #[derive(Parser, Debug)]

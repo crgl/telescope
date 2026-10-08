@@ -107,6 +107,7 @@ fn main() -> io::Result<()> {
         Subcommand::Annotate(args) => run_annotate(args),
         Subcommand::DetectStrand(args) => detect_strand::run_detect_strand(args),
         Subcommand::Assign(args) => legacy::run_assign(args),
+        Subcommand::GtfTies(args) => legacy::gtf_ties::run_gtf_ties(args),
     }
 }
 

@@ -309,6 +309,18 @@ impl PyIntervalTree {
         }
     }
 
+    /// Ids of every interval in the tree (in no particular order).
+    pub fn interval_ids(&self) -> Vec<u32> {
+        let mut out = Vec::new();
+        let mut stack = if self.top == NIL { Vec::new() } else { vec![self.top] };
+        while let Some(n) = stack.pop() {
+            let node = &self.nodes[n as usize];
+            out.extend(node.s_center.iter());
+            stack.extend(node.child.iter().copied().filter(|&c| c != NIL));
+        }
+        out
+    }
+
     /// `IntervalTree.add`
     pub fn add(&mut self, id: u32, ivs: &IvTable) {
         let iv = *ivs.get(id);

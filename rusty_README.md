@@ -14,6 +14,7 @@ rusty_telescope <COMMAND> [OPTIONS]
 | Command | Purpose |
 |---------|---------|
 | `assign` | Telescope-compatible reassignment: same options and report as `telescope assign`, optionally the same updated BAM |
+| `gtf-ties` | List the regions of a GTF that two or more loci share, where `assign` picks one arbitrarily, and which locus wins |
 | `annotate` | Tag a BAM with GTF overlap, run EM, write tagged BAM + summary TSVs |
 | `detect-strand` | Sample reads, summarize strand concordance per annotation, recommend a `--stranded` mode |
 
@@ -147,6 +148,38 @@ Not yet covered: coordinate-sorted input, input from Linux or other numpy/scipy 
 - `tests/legacy_fixtures.rs` runs 23 cases over small real-data fixtures in `tests/data/legacy/` (about 12 MB), each with the report Python Telescope produced. They cover paired and single-end reads, stranded and unstranded libraries, HISAT2, bowtie2 and STAR, long reads with supplementary alignments, SAM input, a GTF with mangled quoting, every reassign mode, `--theta_prior 0`, and Telescope under both Python 3.7 and 3.10. One fixture is sized so that numpy's summation order and the zero-weight rule change the answer if they are not reproduced.
 
 `tests/data/legacy/README.md` says what each fixture is for and how it was made.
+
+## `gtf-ties`: where an annotation forces arbitrary choices
+
+Wherever two or more loci cover the same bases, a read lying wholly inside the shared stretch overlaps them all equally, and Telescope (hence `assign`) gives it to whichever locus its interval tree yields first. That order follows Python's hash-table layout, not anything biological. `gtf-ties` lists every such stretch for a GTF, without needing any reads.
+
+```bash
+rusty_telescope gtf-ties annotation.gtf                       # loci defined by gene_id, Python 3.8+ rules
+rusty_telescope gtf-ties annotation.gtf --attribute locus     # match an `assign` run that uses the default attribute
+rusty_telescope gtf-ties annotation.gtf --tie_hash python37   # Telescope under Python 3.7 or older
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `<GTFFILE>` | *(required)* | Annotation file |
+| `--attribute` | `gene_id` | GTF attribute that defines a locus. `assign` defaults to `locus`; use the same value for both |
+| `--tie_hash` | `python38` | `python38`: Telescope under Python 3.8 or newer. `python37`: under 3.7 or older |
+| `--same_strand` | off | Only report competition between loci on the same strand, as in an `assign` run with a `--stranded_mode` |
+| `--outdir` | `.` | Output directory |
+| `--exp_tag` | GTF file name | Output file prefix |
+
+Two files are written:
+
+- `<tag>-tie_regions.tsv`: one row per shared stretch, from one interval boundary to the next. Columns: `chrom`, `start`, `end` (GTF coordinates, inclusive), `length`, `winner`, `winner_strand`, `n_competing`, `losers` (each with its strand), and `winner_at_first_base`.
+- `<tag>-tie_loci.tsv`: one row per locus involved, with its length, the bases it shares, the bases it wins and loses, and which loci it wins over or loses to (with base counts).
+
+How to read the winner:
+
+- `winner` is the locus that gets a read lying inside the stretch.
+- `winner_at_first_base` is the locus that gets a read starting exactly on the stretch's first base. It usually equals `winner`, but Telescope's order also depends on the interval boundaries a read spans, so it can differ.
+- A read that crosses into a neighbouring stretch can likewise resolve differently from both; this is not tabulated.
+- A read extending beyond the shared bases overlaps the loci unequally and goes to the larger overlap, as usual.
+- A locus that is shared along its whole length and never wins receives no read that lies wholly inside it. The run log counts these.
 
 ## `annotate` and `detect-strand`
 

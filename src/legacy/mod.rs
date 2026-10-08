@@ -13,6 +13,7 @@
 
 pub mod annotation;
 mod coverage;
+pub mod gtf_ties;
 pub mod loader;
 pub mod model;
 pub mod numpy;
