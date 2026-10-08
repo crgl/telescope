@@ -10,6 +10,20 @@ intervaltree 3.1.0 (`py310`), and Python 3.7.12 with numpy 1.21.6 and scipy 1.7.
 Cases marked `rust` have no Python equivalent; their expected output was written by this
 program and only guards against unintended change.
 
+## Two sets of expected output
+
+Python Telescope's output depends on the platform's math library in its last digits (see the
+main README), so the reference in `expected/` is only reproducible on the kind of machine that
+produced it. The tests therefore check two things:
+
+- `expected_portable/`: output of this program's default `--math portable` mode, which is the
+  same on every platform. Checked exactly everywhere.
+- `expected/`: Python Telescope's output from macOS arm64. Checked exactly with `--math system`,
+  on macOS arm64 only.
+
+At the time of writing the two sets are byte-identical, i.e. the portable mode reproduces the
+Python reference on all 23 cases.
+
 ## What each fixture is for
 
 | Fixture | Source | Fragments | What it exercises |

@@ -38,7 +38,7 @@ const PALE_GREEN: &str = "209,236,228";
 
 /// `helpers.phred`
 fn phred(p: f64) -> u8 {
-    if p < 1.0 { (-10.0 * (1.0 - p).log10()).round_ties_even() as u8 } else { 255 }
+    if p < 1.0 { (-10.0 * super::numpy::log10(1.0 - p)).round_ties_even() as u8 } else { 255 }
 }
 
 fn invalid(msg: &str) -> io::Error {

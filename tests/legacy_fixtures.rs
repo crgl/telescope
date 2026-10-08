@@ -89,10 +89,10 @@ fn first_difference(got: &str, want: &str) -> String {
     format!("line counts differ: got {}, want {}", got.lines().count(), want.lines().count())
 }
 
-#[test]
-fn assign_matches_reference_on_every_fixture() {
+/// Runs every case with `math` and compares against `expected_dir`.
+fn check_all(math: &str, expected_dir: &str) {
     let dir = data_dir();
-    let scratch = std::env::temp_dir().join(format!("telescope_rs_fixtures_{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("telescope_rs_fixtures_{math}_{}", std::process::id()));
     let mut failures = Vec::new();
     let all = cases();
     assert!(all.len() >= 20, "expected the full case list, found {}", all.len());
@@ -101,7 +101,7 @@ fn assign_matches_reference_on_every_fixture() {
         let out = scratch.join(&case.name);
         fs::create_dir_all(&out).unwrap();
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_telescope_rs"));
-        cmd.args(["assign", "--quiet", "--exp_tag", "t", "--outdir"]).arg(&out);
+        cmd.args(["assign", "--quiet", "--exp_tag", "t", "--math", math, "--outdir"]).arg(&out);
         if case.check_updated {
             // the expected tables hold every alignment, as Telescope writes them
             cmd.args(["--updated_sam", "--legacy"]);
@@ -114,13 +114,13 @@ fn assign_matches_reference_on_every_fixture() {
         }
 
         let got = fs::read_to_string(out.join("t-telescope_report.tsv")).unwrap();
-        let want = fs::read_to_string(dir.join(format!("expected/{}.report.tsv", case.name))).unwrap();
+        let want = fs::read_to_string(dir.join(format!("{expected_dir}/{}.report.tsv", case.name))).unwrap();
         if got != want {
             failures.push(format!("{}: report differs at {}", case.name, first_difference(&got, &want)));
         }
         if case.check_updated {
             let got = updated_table(&out.join("t-updated.bam"));
-            let want = fs::read_to_string(dir.join(format!("expected/{}.updated.tsv", case.name))).unwrap();
+            let want = fs::read_to_string(dir.join(format!("{expected_dir}/{}.updated.tsv", case.name))).unwrap();
             if got != want {
                 failures.push(format!("{}: updated BAM differs at {}", case.name, first_difference(&got, &want)));
             }
@@ -128,4 +128,19 @@ fn assign_matches_reference_on_every_fixture() {
     }
     fs::remove_dir_all(&scratch).ok();
     assert!(failures.is_empty(), "{} of {} cases failed:\n{}", failures.len(), all.len(), failures.join("\n"));
+}
+
+/// The default, portable math must give these exact bytes on every platform.
+#[test]
+fn assign_is_identical_on_every_platform() {
+    check_all("portable", "expected_portable");
+}
+
+/// With the system math library, output must equal Python Telescope's. That
+/// only holds on the kind of machine the Python reference ran on, because
+/// Python's own output depends on the platform's expm1.
+#[test]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn assign_matches_python_reference_with_system_math() {
+    check_all("system", "expected");
 }

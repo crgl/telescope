@@ -5,7 +5,7 @@
 //! [`TelescopeEm`] is the reference: Telescope's `TelescopeLikelihood`, with
 //! each sum taken in the order scipy takes it so results match bit for bit.
 
-use super::numpy::{np_sum, recip0, reduceat_sum};
+use super::numpy::{expm1, log1p, np_sum, recip0, reduceat_sum};
 
 /// Fragment x feature score matrix in CSR form (Telescope's `raw_scores`).
 /// Columns are sorted within each row; scores are the rescaled
@@ -89,7 +89,7 @@ impl TelescopeEm {
         let max_score = m.data.iter().copied().max().unwrap_or(0);
         let recip = 1.0 / max_score as f64;
         let table: Vec<f64> = (0..=max_score as u32)
-            .map(|s| (s as f64 * recip * SCALE_FACTOR).exp_m1())
+            .map(|s| expm1(s as f64 * recip * SCALE_FACTOR))
             .collect();
         let q: Vec<f64> = m.data.iter().map(|&s| table[s as usize]).collect();
 
@@ -146,7 +146,7 @@ impl TelescopeEm {
             .map(|i| {
                 let mut s = 0.0;
                 for k in m.row(i) {
-                    s += z[k] * buf[k].ln_1p();
+                    s += z[k] * log1p(buf[k]);
                 }
                 s
             })

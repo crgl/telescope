@@ -30,10 +30,25 @@ grep -v '^#' "$here/cases.tsv" | while IFS=$'\t' read -r name ref aln gtf args u
     py310) (cd "$out" && "$T/env/bin/telescope" assign $flag --outdir "$out" --exp_tag t $args "$here/$aln" "$here/$gtf" 2> log) ;;
     py37)  # the Python run is plain Telescope; --tie_hash only tells the Rust side which Python to match
            (cd "$out" && "$T/env_py37/bin/telescope" assign $flag --outdir "$out" --exp_tag t ${args/--tie_hash python37/} "$here/$aln" "$here/$gtf" 2> log) ;;
-    rust)  "$repo/target/release/telescope_rs" assign --quiet $flag --outdir "$out" --exp_tag t $args "$here/$aln" "$here/$gtf" 2> "$out/log" ;;
+    rust)  "$repo/target/release/telescope_rs" assign --quiet --math system $flag --outdir "$out" --exp_tag t $args "$here/$aln" "$here/$gtf" 2> "$out/log" ;;
   esac
   if [ ! -s "$out/t-telescope_report.tsv" ]; then echo "FAILED $name"; tail -2 "$out/log"; continue; fi
   cp "$out/t-telescope_report.tsv" "$here/expected/$name.report.tsv"
   [ "$upd" = yes ] && updated_table "$out/t-updated.bam" > "$here/expected/$name.updated.tsv"
   echo "ok $name ($ref): $(($(wc -l < "$here/expected/$name.report.tsv") - 2)) features"
 done
+
+# Second set: this program in its default portable-math mode, which gives the same bytes on
+# every platform. Pinned here so the suite can be checked exactly anywhere; it differs from the
+# Python set only in last-digit effects of the math library (see README.md).
+mkdir -p "$here/expected_portable"
+grep -v '^#' "$here/cases.tsv" | while IFS=$'\t' read -r name ref aln gtf args upd; do
+  [ -z "$name" ] && continue
+  [ "$args" = "-" ] && args=""
+  out="$work/portable_$name"; mkdir -p "$out"
+  flag=""; [ "$upd" = yes ] && flag="--updated_sam --legacy"
+  "$repo/target/release/telescope_rs" assign --quiet --math portable $flag --outdir "$out" --exp_tag t $args "$here/$aln" "$here/$gtf" 2> "$out/log" || { echo "FAILED portable $name"; continue; }
+  cp "$out/t-telescope_report.tsv" "$here/expected_portable/$name.report.tsv"
+  [ "$upd" = yes ] && updated_table "$out/t-updated.bam" > "$here/expected_portable/$name.updated.tsv"
+done
+echo "portable set written"

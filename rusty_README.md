@@ -80,6 +80,7 @@ Not available: `--ncpu`, `--tempdir`, `--logfile`, `--skip_em`, `--annotation_cl
 | `--overlap_coords` | follows `--overlap_compat` | `telescope`: overlaps measured one base to the right, and a GTF row bridging two intervals of its own locus aborts the run. `corrected`: true coordinates, no abort |
 | `--overlap_ties` | follows `--overlap_compat` | Which locus wins when two overlap an alignment equally. `telescope`: the order Python's set iteration yields. `corrected`: the locus that appears first in the GTF |
 | `--tie_hash` | `python38` | Which Python's tuple hash drives Telescope-style ties: `python38` (3.8 and newer) or `python37` (3.7 and older) |
+| `--math` | `portable` | Source of `expm1`, `log1p` and `log10`. `portable`: a correctly rounded implementation, identical on every machine. `system`: the platform's math library, as numpy uses, to match Python Telescope run on the same machine |
 | `--float_sums` | `numpy` | `numpy`: sums accumulated as numpy and scipy do, needed for bit-identical results. `sequential`: plain left to right |
 | `--updated_sam_content` * | `assigned` (`all` with `--legacy`) | `assigned`: only the alignment each fragment was assigned to. `all`: what Telescope writes, including `other.bam` |
 | `--compression_level` * | `1` (`6` with `--legacy`) | Compression of the output BAMs, 0 to 9. Lower is faster and larger |
@@ -114,6 +115,7 @@ What is reproduced, and why it matters:
 - **Ties.** When two loci overlap an alignment equally, Telescope keeps whichever its interval tree returns first, which follows Python's hash-table layout. `assign` carries a port of CPython's `set` and of the `intervaltree` package to return the same order. Ties are common (hundreds of thousands of alignments per sample on a genes-plus-HERV annotation) and decide 1-3% of final counts.
 - **Python version.** Python changed its tuple hash in 3.8, so Telescope under Python 3.7 and Telescope under Python 3.10 give different results on the same input (0.9-5.4% of counts in the runs compared). `--tie_hash` selects which one to match; both are reproduced byte for byte.
 - **Arithmetic order.** Sums follow numpy's blocked pairwise scheme and scipy's sparse-matrix conventions, including dropping a candidate whose weight underflows to zero. Switching this off (`--float_sums sequential`) changed at most three counts in any run tested.
+- **Math library.** Telescope's model calls `expm1` through numpy, which uses the platform's math library, and that function's last digit differs between systems (macOS and Linux disagree on about one result in ten over the model's range). Python Telescope therefore gives slightly different output on different machines: a report row can move among rows that print identically, MAPQ can flip between 160 and 255 where a weight lands on or just below 1, and an exact tie can occasionally change a count by one. By default `assign` uses a correctly rounded `expm1` (CORE-MATH), so its output is the same on every machine. On the machine the reference was produced on, that default reproduced Python's output in every comparison made; `--math system` uses the platform's library instead, which is the setting that matches Python by construction.
 - **Failures.** Telescope crashes on an empty alignment file, on a mapped alignment with no `AS` tag, and on a GTF row missing the locus attribute or bridging two intervals of its locus. `assign` stops with an error in the same situations. It also stops if a rescaled score would not fit Telescope's 16-bit score matrix, rather than guess what Telescope would do.
 
 Read names are not stored (a 128-bit hash stands in for Telescope's name-to-row dictionary), and only fragments that overlap the annotation are kept in memory.
@@ -138,14 +140,14 @@ Against the Python 3.7 environment (older numpy and scipy, run under Rosetta) a 
 
 On the heaviest run (about 230 million alignment records, HERV+genes annotation) Python Telescope took 63 minutes and 25.3 GB; `assign` took 2.5 minutes and 3.4 GB. The other HERV+genes runs were 4-24 minutes and 4-10 GB against 17-44 seconds and 0.5-1 GB.
 
-Not yet covered: coordinate-sorted input, input from Linux or other numpy/scipy versions, and full-depth (unsubsampled) data.
+Not yet covered: coordinate-sorted input, and Python Telescope run on Linux or with other numpy/scipy versions (see *Math library* above for why its output differs by platform).
 
 ### Regression tests
 
 `cargo test` checks `assign` against the reference without needing Python or any external data:
 
 - `tests/legacy.rs` uses the test data Telescope ships.
-- `tests/legacy_fixtures.rs` runs 23 cases over small real-data fixtures in `tests/data/legacy/` (about 12 MB), each with the report Python Telescope produced. They cover paired and single-end reads, stranded and unstranded libraries, HISAT2, bowtie2 and STAR, long reads with supplementary alignments, SAM input, a GTF with mangled quoting, every reassign mode, `--theta_prior 0`, and Telescope under both Python 3.7 and 3.10. One fixture is sized so that numpy's summation order and the zero-weight rule change the answer if they are not reproduced.
+- `tests/legacy_fixtures.rs` runs 23 cases over small real-data fixtures in `tests/data/legacy/` (about 12 MB). They cover paired and single-end reads, stranded and unstranded libraries, HISAT2, bowtie2 and STAR, long reads with supplementary alignments, SAM input, a GTF with mangled quoting, every reassign mode, `--theta_prior 0`, and Telescope under both Python 3.7 and 3.10. One fixture is sized so that numpy's summation order and the zero-weight rule change the answer if they are not reproduced. Each case is checked twice: against output pinned from the default portable math, on every platform, and against the report Python Telescope produced, with `--math system`, on macOS arm64 only (the platform that reference came from).
 
 `tests/data/legacy/README.md` says what each fixture is for and how it was made.
 

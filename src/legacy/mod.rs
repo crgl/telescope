@@ -90,6 +90,12 @@ pub enum TieHashArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MathArg {
+    Portable,
+    System,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FloatSumsArg {
     Numpy,
     Sequential,
@@ -194,6 +200,14 @@ pub struct AssignArgs {
     #[arg(long = "tie_hash", value_enum, default_value = "python38")]
     pub tie_hash: TieHashArg,
 
+    /// Where expm1, log1p and log10 come from. `portable`: a correctly
+    /// rounded implementation, so output is identical on every machine.
+    /// `system`: the platform's math library, which is what numpy uses, so
+    /// output matches Python Telescope run on the same machine but can
+    /// differ in the last digit between machines
+    #[arg(long, value_enum, default_value = "portable")]
+    pub math: MathArg,
+
     /// How floating-point sums are accumulated: as numpy does (needed for
     /// bit-identical results) or plainly left to right
     #[arg(long = "float_sums", value_enum, default_value = "numpy")]
@@ -275,6 +289,7 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
     };
     let rules = OverlapRules { coords: pick(args.overlap_coords), ties: pick(args.overlap_ties) };
     pyset::set_pre38_tuple_hash(args.tie_hash == TieHashArg::Python37);
+    numpy::set_system_math(args.math == MathArg::System);
     numpy::set_sequential_sums(args.float_sums == FloatSumsArg::Sequential);
     let content = match args.updated_sam_content {
         Some(UpdatedSamContentArg::All) => Content::All,

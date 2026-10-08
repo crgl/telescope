@@ -15,6 +15,7 @@ noodles-bgzf = { version = "0.46", features = ["libdeflate"] }
 rust-lapper = "1"
 bigtools = { version = "0.5.8", default-features = false, features = ["write"] }
 tokio = { version = "1.53.2", default-features = false, features = ["rt"] }
+core-math = "1.4.0"
 
 # Used only for getrusage() to report peak RSS in the run summary.
 # Target-conditional: not pulled in on non-Unix builds.

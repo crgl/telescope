@@ -19,6 +19,35 @@ fn sequential() -> bool {
     SEQUENTIAL_SUMS.load(Ordering::Relaxed)
 }
 
+/// expm1, log1p and log10 are not correctly rounded in system math libraries,
+/// and their last digit differs between platforms (macOS and Linux disagree
+/// on about one expm1 result in ten over the model's range). numpy calls the
+/// system's, so Telescope's own output varies by machine. By default these
+/// come from CORE-MATH instead, which is correctly rounded and therefore the
+/// same everywhere; `--math system` uses the platform's, to match a Python
+/// Telescope run on the same machine.
+static SYSTEM_MATH: AtomicBool = AtomicBool::new(false);
+
+pub fn set_system_math(on: bool) {
+    SYSTEM_MATH.store(on, Ordering::Relaxed);
+}
+
+fn system_math() -> bool {
+    SYSTEM_MATH.load(Ordering::Relaxed)
+}
+
+pub fn expm1(x: f64) -> f64 {
+    if system_math() { x.exp_m1() } else { core_math::expm1(x) }
+}
+
+pub fn log1p(x: f64) -> f64 {
+    if system_math() { x.ln_1p() } else { core_math::log1p(x) }
+}
+
+pub fn log10(x: f64) -> f64 {
+    if system_math() { x.log10() } else { core_math::log10(x) }
+}
+
 /// `ndarray.sum()` of a 1-D f64 array. numpy feeds the reduction through its
 /// 8192-element buffer, so the pairwise sum restarts every 8192 values and
 /// the block totals are added left to right.
