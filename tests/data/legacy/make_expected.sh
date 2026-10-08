@@ -1,6 +1,6 @@
 #!/bin/bash
 # Regenerate expected/ from the reference implementation: Python Telescope 1.0.4.1
-# (hanalysis fork, this repository's telescope/ directory) for the py310 and py37 cases,
+# (hanalysis fork; check out the git tag python-final to install it) for the py310 and py37 cases,
 # and this program itself for the cases marked "rust" (which have no Python equivalent).
 #
 #   TESTBED=~/herv_working_data/telescope_ccle bash make_expected.sh

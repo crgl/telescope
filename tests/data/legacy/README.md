@@ -1,8 +1,8 @@
 # Reference fixtures for `assign`
 
 Small real-data inputs, with the outputs **Python Telescope v1.0.4.1 from the
-[hanalysis fork](https://github.com/hanalysis/telescope)** (commit `bb58c43`, the
-`telescope/` directory of this repository) produced for them. `tests/legacy_fixtures.rs`
+[hanalysis fork](https://github.com/hanalysis/telescope)** (commit `bb58c43`; preserved in
+this repository under the git tag `python-final`) produced for them. `tests/legacy_fixtures.rs`
 runs every line of `cases.tsv` and requires a byte-for-byte match with `expected/`.
 
 Reference environments: Python 3.10.21 with numpy 1.26.4, scipy 1.15.2, pysam 0.24.1 and

@@ -1,7 +1,7 @@
 //! Legacy (`assign`) mode against Telescope's own bundled test data.
 //!
-//! `telescope/data/telescope_report.tsv` is the report the Python reference
-//! ships for `alignment.bam` + `annotation.gtf`; apart from the version in the
+//! `tests/data/bundled/` holds the test data the Python reference shipped:
+//! `telescope_report.tsv` is its report for `alignment.bam` + `annotation.gtf`; apart from the version in the
 //! header line, `assign` must reproduce it byte for byte.
 
 use std::fs;
@@ -16,14 +16,14 @@ fn assign_reproduces_bundled_telescope_report() {
     let status = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args(["assign", "--quiet", "--exp_tag", "bundled", "--outdir"])
         .arg(&out)
-        .arg(format!("{root}/telescope/data/alignment.bam"))
-        .arg(format!("{root}/telescope/data/annotation.gtf"))
+        .arg(format!("{root}/tests/data/bundled/alignment.bam"))
+        .arg(format!("{root}/tests/data/bundled/annotation.gtf"))
         .status()
         .unwrap();
     assert!(status.success());
 
     let got = fs::read_to_string(out.join("bundled-telescope_report.tsv")).unwrap();
-    let want = fs::read_to_string(format!("{root}/telescope/data/telescope_report.tsv")).unwrap();
+    let want = fs::read_to_string(format!("{root}/tests/data/bundled/telescope_report.tsv")).unwrap();
     fs::remove_dir_all(&out).ok();
 
     let (got_head, got_body) = got.split_once('\n').unwrap();
@@ -56,8 +56,8 @@ fn run_updated_sam(label: &str, extra: &[&str]) -> std::path::PathBuf {
         .args(["assign", "--quiet", "--updated_sam", "--exp_tag", "t", "--outdir"])
         .arg(&out)
         .args(extra)
-        .arg(format!("{root}/telescope/data/alignment.bam"))
-        .arg(format!("{root}/telescope/data/annotation.gtf"))
+        .arg(format!("{root}/tests/data/bundled/alignment.bam"))
+        .arg(format!("{root}/tests/data/bundled/annotation.gtf"))
         .status()
         .unwrap();
     assert!(status.success());
