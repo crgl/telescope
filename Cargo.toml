@@ -8,7 +8,13 @@ clap = { version = "4", features = ["derive"] }
 noodles = { version = "0.108.0", features = ["bam", "bgzf", "core", "sam"] }
 rayon = "1"
 regex = "1"
+# Same crate noodles uses for BAM compression; named here only to switch it to
+# libdeflate, which is markedly faster than the pure-Rust default. Needs a C
+# compiler at build time.
+noodles-bgzf = { version = "0.46", features = ["libdeflate"] }
 rust-lapper = "1"
+bigtools = { version = "0.5.8", default-features = false, features = ["write"] }
+tokio = { version = "1.53.2", default-features = false, features = ["rt"] }
 
 # Used only for getrusage() to report peak RSS in the run summary.
 # Target-conditional: not pulled in on non-Unix builds.

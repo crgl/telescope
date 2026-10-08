@@ -103,7 +103,8 @@ fn assign_matches_reference_on_every_fixture() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"));
         cmd.args(["assign", "--quiet", "--exp_tag", "t", "--outdir"]).arg(&out);
         if case.check_updated {
-            cmd.arg("--updated_sam");
+            // the expected tables hold every alignment, as Telescope writes them
+            cmd.args(["--updated_sam", "--legacy"]);
         }
         cmd.args(&case.args).arg(dir.join(&case.alignment)).arg(dir.join(&case.gtf));
         let run = cmd.output().unwrap();

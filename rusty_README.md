@@ -2,7 +2,7 @@
 
 A fast Rust toolkit for locus-level quantification of transposable elements from RNA-seq alignments. It has two faces:
 
-- **`assign`** is a drop-in replacement for [Telescope](https://github.com/mlbendall/telescope)'s `telescope assign`. In its default (legacy) profile it reproduces the Python program's report byte for byte, at roughly a tenth of the time and memory. See [`assign`: Telescope-compatible mode](#assign-telescope-compatible-mode).
+- **`assign`** is a drop-in replacement for [Telescope](https://github.com/mlbendall/telescope)'s `telescope assign`. It reproduces the Python program's report byte for byte, at roughly a tenth of the time and memory, and with `--legacy` writes the same alignment files too. See [`assign`: Telescope-compatible mode](#assign-telescope-compatible-mode).
 - **`annotate`** is a separate, multithreaded pipeline with its own overlap rules, prior models, confidence filtering and Jaccard similarity output. **`detect-strand`** is its helper for inferring library strandedness. Everything from [Options](#options) onward describes these two.
 
 ## Usage
@@ -25,7 +25,7 @@ rusty_telescope <COMMAND> [OPTIONS]
 # Same call shape as `telescope assign`
 rusty_telescope assign alignments.bam annotation.gtf --outdir results --exp_tag sample1
 
-# Also write the annotated BAMs Telescope produces
+# Also write a BAM of the alignments fragments were assigned to
 rusty_telescope assign alignments.bam annotation.gtf --updated_sam
 
 # Stranded paired-end library (dUTP)
@@ -34,8 +34,11 @@ rusty_telescope assign alignments.bam annotation.gtf --stranded_mode RF
 # Match a Telescope install that runs on Python 3.7 or older
 rusty_telescope assign alignments.bam annotation.gtf --tie_hash python37
 
-# Corrected overlaps, and an updated BAM holding only assigned alignments
-rusty_telescope assign alignments.bam annotation.gtf --profile standard --updated_sam
+# Exactly the alignment files Telescope writes (all alignments, other.bam, tmp_tele.bam)
+rusty_telescope assign alignments.bam annotation.gtf --updated_sam --legacy
+
+# Coverage of assigned fragments as bigWig, with no BAM kept
+rusty_telescope assign alignments.bam annotation.gtf --bigwig
 ```
 
 Input is a SAM or BAM file (detected from its content) in which all alignments of a fragment are adjacent, as aligners write them. The run is single-threaded. Output is `<outdir>/<exp_tag>-telescope_report.tsv`, in Telescope's format, with Telescope's version string (`1.0.4.1`) in the header so files compare equal.
@@ -61,7 +64,7 @@ Names and defaults are Telescope's, underscores included.
 | `--em_epsilon` | `1e-7` | EM convergence cutoff |
 | `--max_iter` | `100` | EM iteration cap |
 | `--use_likelihood` | off | Converge on the change in log-likelihood |
-| `--updated_sam` | off | Write the updated BAM (see below) |
+| `--updated_sam` | off | Write the updated BAM (see below). Telescope's own file set needs `--legacy` |
 | `--quiet`, `--debug` | off | Less or more log output |
 
 Not available: `--ncpu`, `--tempdir`, `--logfile`, `--skip_em`, `--annotation_class`, `--overlap_mode`, the checkpoint file and `telescope resume`. Abbreviated option names are not accepted.
@@ -70,30 +73,41 @@ Not available: `--ncpu`, `--tempdir`, `--logfile`, `--skip_em`, `--annotation_cl
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--profile` | `legacy` | `legacy`: everything as Telescope does it. `standard`: corrected overlaps, and an updated BAM limited to assigned alignments. Sets the defaults of the options marked * |
+| `--legacy` | off | With `--updated_sam`, write exactly Telescope's files: all alignments, `other.bam`, `tmp_tele.bam` kept, compression level 6. Sets the defaults of the options marked *. The report is the same with or without it |
 | `--model` | `telescope` | `telescope`: Telescope's EM. `no-theta`: the same EM without theta and its prior |
-| `--overlap_compat` * | `telescope` | Sets `--overlap_coords` and `--overlap_ties` together |
+| `--overlap_compat` | `telescope` | Sets `--overlap_coords` and `--overlap_ties` together |
 | `--overlap_coords` | follows `--overlap_compat` | `telescope`: overlaps measured one base to the right, and a GTF row bridging two intervals of its own locus aborts the run. `corrected`: true coordinates, no abort |
 | `--overlap_ties` | follows `--overlap_compat` | Which locus wins when two overlap an alignment equally. `telescope`: the order Python's set iteration yields. `corrected`: the locus that appears first in the GTF |
 | `--tie_hash` | `python38` | Which Python's tuple hash drives Telescope-style ties: `python38` (3.8 and newer) or `python37` (3.7 and older) |
 | `--float_sums` | `numpy` | `numpy`: sums accumulated as numpy and scipy do, needed for bit-identical results. `sequential`: plain left to right |
-| `--updated_sam_content` * | `all` | `all`: what Telescope writes. `assigned`: only the alignment each fragment was assigned to |
+| `--updated_sam_content` * | `assigned` (`all` with `--legacy`) | `assigned`: only the alignment each fragment was assigned to. `all`: what Telescope writes, including `other.bam` |
+| `--compression_level` * | `1` (`6` with `--legacy`) | Compression of the output BAMs, 0 to 9. Lower is faster and larger |
+| `--no-other` | off | Do not write `other.bam` even when all alignments are requested |
+| `--bigwig` | off | Write coverage of assigned fragments as bigWig (see below) |
 
 ### Updated BAM (`--updated_sam`)
 
-With `--updated_sam_content all` (the legacy default) three files are written, as Telescope does:
+By default only `<exp_tag>-updated.bam` is written. It holds one alignment (both mates) per assigned fragment: fragments assigned to the no-feature key or to nothing are left out. Each record carries Telescope's tags: `ZF` is the alignment's feature, `ZT` is `PRI`, `ZB` lists the top-scoring feature(s), `XP` is the membership weight as a percentage, `YC` is a display colour, and MAPQ is the phred-scaled weight. These records are the same ones, with the same content, that Telescope writes for assigned fragments.
 
-- `<exp_tag>-updated.bam`: every alignment of every fragment that overlaps the annotation. `ZF` is the alignment's feature, `ZT` is `PRI` for the best alignment per feature and `SEC` otherwise, `ZB` lists the top-scoring feature(s), `XP` is the membership weight as a percentage, `YC` is a display colour, and MAPQ is the phred-scaled weight. Alignments the fragment was not assigned to are flagged secondary.
-- `<exp_tag>-other.bam`: fragments that are unmapped or overlap no feature.
-- `<exp_tag>-tmp_tele.bam`: Telescope's intermediate file, which it leaves behind.
+With `--legacy` (or `--updated_sam_content all`) three files are written, as Telescope does:
 
-With `--updated_sam_content assigned`, only `<exp_tag>-updated.bam` is written. It holds one alignment (both mates) per assigned fragment, carrying the same tags; fragments assigned to the no-feature key or to nothing are left out.
+- `<exp_tag>-updated.bam`: every alignment of every fragment that overlaps the annotation. `ZT` is `PRI` for the best alignment per feature and `SEC` otherwise, and alignments the fragment was not assigned to are flagged secondary.
+- `<exp_tag>-other.bam`: fragments that are unmapped or overlap no feature. This is most of the input and most of the run time; `--no-other` skips it.
+- `<exp_tag>-tmp_tele.bam`: Telescope's intermediate file, which it leaves behind (`--legacy` only).
+
+These match Telescope's files record for record as SAM text. The BAM bytes differ, since compression is not reproduced.
 
 Telescope's code tries to add an `@PG` line to the updated BAM but the append has no effect, so the header equals the input's. This is reproduced.
 
+On a 40-million-pair sample with a HERV annotation, `--updated_sam` takes about 29 s by default and about 137 s with `--legacy`; Python Telescope takes about 580 s.
+
+### Coverage (`--bigwig`)
+
+`--bigwig` writes per-base coverage of assigned fragments to `<exp_tag>-coverage.bw`, or to `<exp_tag>-coverage.plus.bw` and `<exp_tag>-coverage.minus.bw` when `--stranded_mode` is set. Each assigned fragment counts once over the reference bases its assigned alignment covers: aligned blocks only, so introns and deletions are excluded, and the overlap between two mates is not counted twice. Values are raw depth. It can be used with or without `--updated_sam`; on its own it leaves no BAM behind.
+
 ### How it relates to Python Telescope
 
-What is reproduced in the legacy profile, and why it matters:
+What is reproduced, and why it matters:
 
 - **Overlap arithmetic.** Every GTF row is used regardless of feature type, and overlaps are measured one base to the right of the true position.
 - **Ties.** When two loci overlap an alignment equally, Telescope keeps whichever its interval tree returns first, which follows Python's hash-table layout. `assign` carries a port of CPython's `set` and of the `intervaltree` package to return the same order. Ties are common (hundreds of thousands of alignments per sample on a genes-plus-HERV annotation) and decide 1-3% of final counts.
@@ -111,7 +125,8 @@ Compared against Python Telescope 1.0.4.1 (Python 3.10, numpy 1.26.4, scipy 1.15
 |------|-------------|--------|
 | Telescope's bundled test data, all five reassign modes, BAM and SAM input | report + BAMs | identical |
 | 10 CCLE RNA-seq runs (10% subsamples, HISAT2 `-k 100`), hg38 and T2T-CHM13, HERV-only and HERV+genes annotations, plus an HML2-only annotation | 50 reports | identical |
-| The same 50 with `--updated_sam` | report + BAMs | identical |
+| The same 50 with `--updated_sam --legacy` | report + BAMs | identical |
+| One run at full depth (40 million pairs), HERV annotation, `--updated_sam --legacy` | report + BAMs | identical |
 | bowtie2 and STAR alignments of one run | report + BAMs | identical |
 | Stranded paired-end library (ENCODE ENCSR000CON), all five `--stranded_mode` values | report + BAMs | identical |
 | Single-end (read 1 only) unstranded and stranded, HISAT2 and bowtie2 | report + BAMs | identical |

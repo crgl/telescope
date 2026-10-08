@@ -12,6 +12,7 @@
 //!     ties between equally-overlapped loci in Telescope-compatible mode.
 
 pub mod annotation;
+mod coverage;
 pub mod loader;
 pub mod model;
 pub mod numpy;
@@ -28,6 +29,7 @@ use clap::{Parser, ValueEnum};
 
 use crate::logging::{Logger, Verbosity, format_bytes, peak_rss_bytes};
 use annotation::{Annotation, OverlapCompat, OverlapRules};
+use coverage::Coverage;
 use loader::{LoadOptions, SamOutputs, Stranded};
 use rawbam::{CompressionLevel, RawReader, RawWriter};
 use numpy::Mt19937;
@@ -67,14 +69,6 @@ pub enum OverlapCompatArg {
     Telescope,
     /// True coordinates; no abort on bridging rows
     Corrected,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum ProfileArg {
-    /// Everything as Telescope does it
-    Legacy,
-    /// Corrected overlaps; updated BAM limited to assigned alignments
-    Standard,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -177,15 +171,9 @@ pub struct AssignArgs {
     #[arg(long, value_enum, default_value = "telescope")]
     pub model: ModelArg,
 
-    /// Sets the defaults for the options below that have a Telescope-
-    /// compatible and a corrected behaviour
-    #[arg(long, value_enum, default_value = "legacy")]
-    pub profile: ProfileArg,
-
-    /// How feature overlaps are computed [default: telescope under the legacy
-    /// profile, corrected otherwise]
-    #[arg(long = "overlap_compat", value_enum)]
-    pub overlap_compat: Option<OverlapCompatArg>,
+    /// How feature overlaps are computed
+    #[arg(long = "overlap_compat", value_enum, default_value = "telescope")]
+    pub overlap_compat: OverlapCompatArg,
 
     /// Overlap coordinates only: Telescope's (shifted one base, abort on a
     /// row bridging two intervals of its locus) or corrected
@@ -214,10 +202,39 @@ pub struct AssignArgs {
     #[arg(long = "updated_sam")]
     pub updated_sam: bool,
 
-    /// Which alignments the updated file holds [default: all under the
-    /// legacy profile, assigned otherwise]
+    /// With --updated_sam, write exactly the files Telescope writes: every
+    /// alignment of every overlapping fragment in <exp_tag>-updated.bam,
+    /// <exp_tag>-other.bam for the rest, the intermediate
+    /// <exp_tag>-tmp_tele.bam left in place, and compression level 6.
+    /// Without it the updated file holds only the alignment each fragment
+    /// was assigned to, nothing else is kept, and compression is level 1.
+    /// The report is the same either way
+    #[arg(long)]
+    pub legacy: bool,
+
+    /// Which alignments the updated file holds [default: assigned, or all
+    /// with --legacy]
     #[arg(long = "updated_sam_content", value_enum)]
     pub updated_sam_content: Option<UpdatedSamContentArg>,
+
+    /// Compression level for the output BAMs, 0 (none) to 9. Lower is faster
+    /// and larger; the alignments inside are the same [default: 1, or 6
+    /// with --legacy]
+    #[arg(long = "compression_level", value_parser = clap::value_parser!(u8).range(0..=9))]
+    pub compression_level: Option<u8>,
+
+    /// Write coverage of assigned fragments as bigWig: <exp_tag>-coverage.bw,
+    /// or -coverage.plus.bw and -coverage.minus.bw when --stranded_mode is
+    /// set. Each assigned fragment counts once over the bases its assigned
+    /// alignment covers. Independent of --updated_sam; on its own it leaves
+    /// no BAM behind
+    #[arg(long)]
+    pub bigwig: bool,
+
+    /// Do not write <exp_tag>-other.bam (the fragments that are unmapped or
+    /// overlap no feature) even when all alignments are requested
+    #[arg(long = "no-other", alias = "no_other")]
+    pub no_other: bool,
 
     /// Silence progress output
     #[arg(long)]
@@ -245,12 +262,10 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         StrandedArg::Fr => Stranded::Fr,
         StrandedArg::F => Stranded::F,
     };
-    let legacy = args.profile == ProfileArg::Legacy;
+    let legacy = args.legacy;
     let compat = match args.overlap_compat {
-        Some(OverlapCompatArg::Telescope) => OverlapCompat::Telescope,
-        Some(OverlapCompatArg::Corrected) => OverlapCompat::Corrected,
-        None if legacy => OverlapCompat::Telescope,
-        None => OverlapCompat::Corrected,
+        OverlapCompatArg::Telescope => OverlapCompat::Telescope,
+        OverlapCompatArg::Corrected => OverlapCompat::Corrected,
     };
     let pick = |arg: Option<OverlapCompatArg>| match arg {
         Some(OverlapCompatArg::Telescope) => OverlapCompat::Telescope,
@@ -278,13 +293,18 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
     // loading; Telescope leaves that file (and other.bam) behind, so the
     // "all" content does too. The "assigned" content keeps only updated.bam.
     let tagged_path = outfile("tmp_tele.bam");
+    let level = CompressionLevel::new(args.compression_level.unwrap_or(if legacy { 6 } else { 1 }))
+        .expect("level range checked by the parser");
     let reader = RawReader::open(&args.samfile)?;
-    let sam_out = if args.updated_sam {
+    let sam_out = if args.updated_sam || args.bigwig {
         Some(SamOutputs {
             // The tagged file is an intermediate, read back once: compress it lightly.
             tagged: RawWriter::create(&tagged_path, &reader.header, CompressionLevel::FAST)?,
             other: match content {
-                Content::All => Some(RawWriter::create(&outfile("other.bam"), &reader.header, CompressionLevel::default())?),
+                Content::All if args.updated_sam && !args.no_other => {
+                    Some(RawWriter::create(&outfile("other.bam"), &reader.header, level)?)
+                }
+                Content::All => None,
                 Content::Assigned => None,
             },
         })
@@ -405,17 +425,42 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         },
         &mut rng,
     )?;
-    if args.updated_sam {
+    if args.updated_sam || args.bigwig {
         // Telescope recomputes the reassignment here, drawing from the same
         // generator again in `choose` mode.
         let weights = report::Weights { z: &fit.z, absent: &fit.absent };
         let assigned = report::reassign_entries(m, weights, mode, args.conf_prob, &mut rng);
         let updated = outfile("updated.bam");
-        updated_sam::write(&tagged_path, &updated, &loaded, &fit, &assigned, content)?;
-        if content == Content::Assigned {
+        let n_refs = loaded.header.reference_sequences().len();
+        let mut coverage = args.bigwig.then(|| Coverage::new(if stranded == Stranded::None { 1 } else { 2 }, n_refs));
+        updated_sam::write(
+            &tagged_path,
+            &loaded,
+            &fit,
+            &assigned,
+            updated_sam::Outputs {
+                bam: args.updated_sam.then_some((updated.as_str(), content, level)),
+                coverage: coverage.as_mut().map(|c| (c, stranded)),
+            },
+        )?;
+        // Telescope leaves its intermediate file behind; only --legacy does too.
+        if !(args.updated_sam && legacy) {
             std::fs::remove_file(&tagged_path)?;
         }
-        log.stage(&format!("Wrote {updated}"));
+        if args.updated_sam {
+            log.stage(&format!("Wrote {updated}"));
+        }
+        if let Some(cov) = coverage.as_mut() {
+            let names: &[&str] = if cov.tracks() == 2 { &["coverage.plus.bw", "coverage.minus.bw"] } else { &["coverage.bw"] };
+            for (track, name) in names.iter().enumerate() {
+                let path = outfile(name);
+                if cov.write(track, &path, &loaded.header)? {
+                    log.stage(&format!("Wrote {path}"));
+                } else {
+                    log.stage(&format!("No assigned fragments for {name}; not written"));
+                }
+            }
+        }
     }
     let rss = peak_rss_bytes().map(format_bytes).unwrap_or_else(|| "n/a".into());
     log.stage(&format!("Wrote {path} (peak memory {rss})"));

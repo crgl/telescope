@@ -66,7 +66,7 @@ fn run_updated_sam(label: &str, extra: &[&str]) -> std::path::PathBuf {
 
 #[test]
 fn updated_sam_legacy_keeps_every_alignment() {
-    let out = run_updated_sam("usam_legacy", &[]);
+    let out = run_updated_sam("usam_legacy", &["--legacy"]);
     let updated = bam_records(&out.join("t-updated.bam"));
     let other = bam_records(&out.join("t-other.bam"));
     assert!(out.join("t-tmp_tele.bam").exists());
@@ -80,8 +80,8 @@ fn updated_sam_legacy_keeps_every_alignment() {
 }
 
 #[test]
-fn updated_sam_assigned_content_keeps_only_assigned_alignments() {
-    let out = run_updated_sam("usam_assigned", &["--updated_sam_content", "assigned"]);
+fn updated_sam_default_keeps_only_assigned_alignments() {
+    let out = run_updated_sam("usam_assigned", &[]);
     let updated = bam_records(&out.join("t-updated.bam"));
     let leftovers = out.join("t-other.bam").exists() || out.join("t-tmp_tele.bam").exists();
     fs::remove_dir_all(&out).ok();

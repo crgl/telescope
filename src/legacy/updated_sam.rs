@@ -16,7 +16,8 @@
 use std::collections::HashMap;
 use std::io;
 
-use super::loader::{Aln, Loaded, MateKey, Rec, TAG_FEATURE, TAG_RANK, classify, name_hash};
+use super::coverage::Coverage;
+use super::loader::{Aln, Loaded, MateKey, Rec, Stranded, TAG_FEATURE, TAG_RANK, classify, name_hash};
 use super::rawbam::{CompressionLevel, Raw, RawReader, RawWriter, set_flag, set_mapq, set_tag_str, set_tag_u8};
 use super::model::ModelFit;
 
@@ -44,23 +45,37 @@ fn invalid(msg: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.to_string())
 }
 
+/// What the second pass produces. Either part may be absent.
+pub struct Outputs<'a> {
+    /// Path, content and compression level of the updated BAM.
+    pub bam: Option<(&'a str, Content, CompressionLevel)>,
+    /// Coverage of assigned fragments, with the library orientation used to
+    /// pick a strand track when there are two.
+    pub coverage: Option<(&'a mut Coverage, Stranded)>,
+}
+
 /// `assigned` is the reassignment matrix for the chosen mode
 /// ([`super::report::reassign_entries`]).
 pub fn write(
     tagged_path: &str,
-    out_path: &str,
     loaded: &Loaded,
     fit: &ModelFit,
     assigned: &[f64],
-    content: Content,
+    outputs: Outputs,
 ) -> io::Result<()> {
     let m = &loaded.matrix;
-    let rows = loaded.rows.as_ref().expect("row index kept for updated BAM");
+    let rows = loaded.rows.as_ref().expect("row index kept for the second pass");
     let cols: HashMap<&[u8], u32> =
         loaded.feat_names.iter().enumerate().map(|(j, n)| (n.as_bytes(), j as u32)).collect();
 
     let mut reader = RawReader::open(tagged_path)?;
-    let mut out = RawWriter::create(out_path, &loaded.header, CompressionLevel::default())?;
+    let content = outputs.bam.map_or(Content::Assigned, |b| b.1);
+    let mut out = match outputs.bam {
+        Some((path, _, level)) => Some(RawWriter::create(path, &loaded.header, level)?),
+        None => None,
+    };
+    let mut coverage = outputs.coverage;
+    let mut merged: Vec<(i64, i64)> = Vec::new();
 
     let mut recs: Vec<Rec> = Vec::new();
     let mut raw: Vec<Vec<u8>> = Vec::new();
@@ -77,7 +92,7 @@ pub fn write(
         for &aln in &alns {
             let members = || std::iter::once(aln.r1).chain(aln.r2);
             if recs[aln.r1].is_unmapped() {
-                if content == Content::All {
+                if let (Content::All, Some(out)) = (content, out.as_mut()) {
                     for r in members() {
                         out.write(&raw[r])?;
                     }
@@ -107,8 +122,25 @@ pub fn write(
                 } else {
                     PALE_GREEN
                 };
+                if let (Some((cov, stranded)), true) = (coverage.as_mut(), is_assigned && col != 0) {
+                    // The assigned alignment's covered bases, mates merged.
+                    merged.clear();
+                    for r in members() {
+                        merged.extend_from_slice(&recs[r].blocks);
+                    }
+                    merged.sort_unstable();
+                    let track = if cov.tracks() == 2 {
+                        (stranded.frag_strand(recs[aln.r1].is_reverse(), aln.r2.is_some()) == b'-') as usize
+                    } else {
+                        0
+                    };
+                    if let Ok(ref_id) = usize::try_from(recs[aln.r1].ref_id) {
+                        cov.add(track, ref_id, &merged);
+                    }
+                }
                 (phred(prob), Some(percent), !is_assigned, colour)
             };
+            let Some(out) = out.as_mut() else { continue };
             for r in members() {
                 let rec = &mut raw[r];
                 let bits = Raw(rec).flag();
@@ -145,7 +177,10 @@ pub fn write(
     if n > 0 {
         flush(&cur_name, &recs[..n], &mut raw[..n])?;
     }
-    out.finish()
+    match out {
+        Some(out) => out.finish(),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]

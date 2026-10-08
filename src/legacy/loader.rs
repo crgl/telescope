@@ -50,7 +50,7 @@ impl Stranded {
 
     /// Fragment strand exactly as `Assigner._assign_pair_threshold` derives it
     /// (it indexes the mode *string*, including for `"None"`).
-    fn frag_strand(self, r1_reversed: bool, is_paired: bool) -> u8 {
+    pub(super) fn frag_strand(self, r1_reversed: bool, is_paired: bool) -> u8 {
         let s = self.as_str().as_bytes();
         let is_f = if is_paired { s[s.len() - 1] == b'F' } else { s[0] == b'F' };
         match (r1_reversed, is_f) {
@@ -103,13 +103,13 @@ pub struct SamOutputs {
 #[derive(Default)]
 pub(super) struct Rec {
     flag: u16,
-    ref_id: i32,
+    pub(super) ref_id: i32,
     start: i32,
     mate_ref: i32,
     mate_start: i32,
     tlen_abs: u32,
     score: Option<i64>,
-    blocks: Vec<(i64, i64)>,
+    pub(super) blocks: Vec<(i64, i64)>,
 }
 
 impl Rec {
@@ -122,7 +122,7 @@ impl Rec {
     pub(super) fn is_unmapped(&self) -> bool {
         self.flag & 0x4 != 0
     }
-    fn is_reverse(&self) -> bool {
+    pub(super) fn is_reverse(&self) -> bool {
         self.flag & 0x10 != 0
     }
     fn is_read1(&self) -> bool {
