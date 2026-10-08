@@ -10,10 +10,10 @@ use std::process::Command;
 #[test]
 fn assign_reproduces_bundled_telescope_report() {
     let root = env!("CARGO_MANIFEST_DIR");
-    let out = std::env::temp_dir().join(format!("rusty_telescope_legacy_{}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("telescope_rs_legacy_{}", std::process::id()));
     fs::create_dir_all(&out).unwrap();
 
-    let status = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let status = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args(["assign", "--quiet", "--exp_tag", "bundled", "--outdir"])
         .arg(&out)
         .arg(format!("{root}/telescope/data/alignment.bam"))
@@ -50,9 +50,9 @@ fn bam_records(path: &std::path::Path) -> Vec<(u16, bool)> {
 
 fn run_updated_sam(label: &str, extra: &[&str]) -> std::path::PathBuf {
     let root = env!("CARGO_MANIFEST_DIR");
-    let out = std::env::temp_dir().join(format!("rusty_telescope_{label}_{}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("telescope_rs_{label}_{}", std::process::id()));
     fs::create_dir_all(&out).unwrap();
-    let status = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let status = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args(["assign", "--quiet", "--updated_sam", "--exp_tag", "t", "--outdir"])
         .arg(&out)
         .args(extra)
@@ -98,10 +98,10 @@ fn updated_sam_default_keeps_only_assigned_alignments() {
 fn gtf_ties_reports_telescope_winners() {
     let root = env!("CARGO_MANIFEST_DIR");
     let data = format!("{root}/tests/data/legacy");
-    let out = std::env::temp_dir().join(format!("rusty_telescope_gtf_ties_{}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("telescope_rs_gtf_ties_{}", std::process::id()));
     fs::create_dir_all(&out).unwrap();
     for (hash, tag) in [("python38", "py310"), ("python37", "py37")] {
-        let status = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+        let status = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
             .args(["gtf-ties", "--quiet", "--attribute", "gene_id", "--tie_hash", hash, "--exp_tag", tag, "--outdir"])
             .arg(&out)
             .arg(format!("{data}/hg38_window_herv_genes.gtf"))

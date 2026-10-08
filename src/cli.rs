@@ -42,7 +42,7 @@ pub enum StrandedMode {
 }
 
 #[derive(Parser)]
-#[command(name = "rusty_telescope")]
+#[command(name = "telescope_rs")]
 #[command(about = "Tag BAM reads with GTF annotation overlap")]
 pub struct Cli {
     #[command(subcommand)]

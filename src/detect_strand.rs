@@ -205,7 +205,7 @@ pub fn run_detect_strand(args: DetectStrandArgs) -> io::Result<()> {
 
     if verbosity != Verbosity::Quiet {
         eprintln!(
-            "rusty_telescope detect-strand summary\n\
+            "telescope_rs detect-strand summary\n\
              =====================================\n\
              Sampled records:        {}\n\
              read1 same-strand pct:  {:.2}\n\

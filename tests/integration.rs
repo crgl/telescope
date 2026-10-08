@@ -289,7 +289,7 @@ fn create_bam(header: &Header, records: &[RecordBuf]) -> Vec<u8> {
 /// Write content to a temp file with a unique name and return the path.
 fn temp_file(label: &str, suffix: &str, content: &[u8]) -> PathBuf {
     let path = std::env::temp_dir().join(format!(
-        "rusty_telescope_{}_{}{}",
+        "telescope_rs_{}_{}{}",
         label,
         std::process::id(),
         suffix
@@ -301,7 +301,7 @@ fn temp_file(label: &str, suffix: &str, content: &[u8]) -> PathBuf {
 /// Create a unique temp directory for output.
 fn temp_dir(label: &str) -> PathBuf {
     let path =
-        std::env::temp_dir().join(format!("rusty_telescope_{}_{}", label, std::process::id()));
+        std::env::temp_dir().join(format!("telescope_rs_{}_{}", label, std::process::id()));
     let _ = fs::remove_dir_all(&path);
     path
 }
@@ -404,7 +404,7 @@ chr1\tsrc\texon\t500\t600\t.\t+\t.\tgene_id \"GENE_B\"";
     let gtf_path = temp_file("tagging_se", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("tagging_se");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -452,7 +452,7 @@ fn test_include_no_feature_single_end() {
     let gtf_path = temp_file("incl_nf_se", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("incl_nf_se");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -493,7 +493,7 @@ fn test_normalize_chr_single_end() {
     let out_dir = temp_dir("norm_chr_se");
 
     // Without --normalize-chr
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -526,7 +526,7 @@ fn test_normalize_chr_single_end() {
 
     // With --normalize-chr
     let out_dir2 = temp_dir("norm_chr_se2");
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -564,7 +564,7 @@ chr1\tsrc\texon\t150\t350\t.\t+\t.\tgene_id \"GENE_B\"";
     let gtf_path = temp_file("summing_se", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("summing_se");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -620,7 +620,7 @@ fn test_paired_end_grouping() {
     let gtf_path = temp_file("paired_grp", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("paired_grp");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -665,7 +665,7 @@ fn test_representative_tiebreak_as_score() {
     let gtf_path = temp_file("tiebreak_as", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("tiebreak_as");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -717,7 +717,7 @@ chr1\tsrc\texon\t500\t600\t.\t+\t.\tgene_id \"GENE_B\"";
     let gtf_path = temp_file("jaccard_out", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("jaccard_out");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -771,7 +771,7 @@ fn test_output_dir_creation() {
     let _ = fs::remove_dir_all(&out_dir);
     assert!(!out_dir.exists());
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -808,7 +808,7 @@ fn test_all_alignments_flag() {
     let gtf_path = temp_file("all_alns", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("all_alns");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -864,7 +864,7 @@ chr1\tsrc\texon\t500\t600\t.\t+\t.\tgene_id \"GENE_B\"";
     let out_dir = temp_dir("conf_ambig");
 
     // With high confidence threshold, equal scores → both probabilities = 0.5, neither passes 0.9
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -916,7 +916,7 @@ chr1\tsrc\texon\t500\t600\t.\t+\t.\tgene_id \"GENE_B\"";
     let gtf_path = temp_file("unique_mode", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("unique_mode");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -971,7 +971,7 @@ chr1\tsrc\texon\t500\t600\t.\t+\t.\tgene_id \"GENE_B\"";
     let gtf_path = temp_file("summary_out", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("summary_out");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1072,7 +1072,7 @@ chr1\tsrc\texon\t500\t600\t.\t+\t.\tgene_id \"GENE_B\"";
     let gtf_path = temp_file("mass_mi0", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("mass_mi0");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1135,7 +1135,7 @@ fn test_pe_span_merging_no_double_count() {
     let gtf_path = temp_file("pe_merge", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("pe_merge");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1178,7 +1178,7 @@ fn test_pe_both_mates_tagged() {
     let gtf_path = temp_file("pe_both_tag", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("pe_both_tag");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1226,7 +1226,7 @@ chr1\tsrc\texon\t500\t600\t.\t+\t.\tgene_id \"GENE_B\"";
     let gtf_path = temp_file("pe_as_sum", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("pe_as_sum");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1277,7 +1277,7 @@ chr2\tsrc\texon\t100\t200\t.\t+\t.\tgene_id \"GENE_C\"";
     let gtf_path = temp_file("pe_discord", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("pe_discord");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1324,7 +1324,7 @@ chr2\tsrc\texon\t100\t200\t.\t+\t.\tgene_id \"GENE_C\"";
     let gtf_path = temp_file("pe_excl_disc", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("pe_excl_disc");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1371,7 +1371,7 @@ fn test_pe_non_overlapping_mates() {
     let gtf_path = temp_file("pe_nonoverlap", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("pe_nonoverlap");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1423,7 +1423,7 @@ fn run_annotate_extra_args(
         out_dir.to_str().unwrap(),
     ];
     args.extend_from_slice(extra);
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args(&args)
         .output()
         .expect("failed to run binary");
@@ -1578,7 +1578,7 @@ fn parse_strandedness_tsv(
 }
 
 fn run_detect_strand(bam: &std::path::Path, gtf: &std::path::Path, out: &std::path::Path) {
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "detect-strand",
             bam.to_str().unwrap(),
@@ -1736,7 +1736,7 @@ fn test_skip_jaccard_no_file_produced() {
     let (bam_path, gtf_path) = jaccard_fixture("skipj_alone");
     let out_dir = temp_dir("skipj_alone");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1770,7 +1770,7 @@ fn test_low_memory_streams_unsorted_jaccard() {
     let (bam_path, gtf_path) = jaccard_fixture("lowmem_stream");
     let out_dir = temp_dir("lowmem_stream");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1809,7 +1809,7 @@ fn test_min_reads_filters_low_coverage_annotations() {
     let (bam_path, gtf_path) = jaccard_fixture("min_reads_filter");
     let out_dir = temp_dir("min_reads_filter");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1837,7 +1837,7 @@ fn test_low_memory_conflicts_with_all_alignments() {
     let (bam_path, gtf_path) = jaccard_fixture("lowmem_conflict");
     let out_dir = temp_dir("lowmem_conflict");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1886,7 +1886,7 @@ fn test_low_memory_equivalence_to_default_outputs() {
                 dir.to_str().unwrap(),
             ];
             args.extend_from_slice(extra);
-            let out = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+            let out = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
                 .args(&args)
                 .output()
                 .expect("failed to run binary");
@@ -1918,7 +1918,7 @@ fn test_run_summary_includes_threads_used() {
     let (bam_path, gtf_path) = jaccard_fixture("threads_log");
     let out_dir = temp_dir("threads_log");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1967,7 +1967,7 @@ fn test_min_overlap_drops_short_overlaps() {
     let gtf_path = temp_file("min_ov_drop", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("min_ov_drop");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -1990,7 +1990,7 @@ fn test_min_overlap_drops_short_overlaps() {
 
     // Same fixture, --min-overlap 0 → annotation appears.
     let out_dir2 = temp_dir("min_ov_keep");
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2025,7 +2025,7 @@ chr1\tsrc\texon\t150\t170\t.\t+\t.\tgene_id \"GENE_A\"";
     let gtf_path = temp_file("min_ov_summed", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("min_ov_summed");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2067,7 +2067,7 @@ chr1\tsrc\texon\t300\t400\t.\t+\t.\tgene_id \"GENE_B\"";
     let gtf_path = temp_file("length_col", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("length_col");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2133,7 +2133,7 @@ fn test_length_correction_default_per_model() {
     // confident ZF=SHORT.
     let (bam_path, gtf_path) = length_correction_fixture("lc_ribbon");
     let out_dir = temp_dir("lc_ribbon");
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2167,7 +2167,7 @@ fn test_length_correction_default_per_model() {
     // over both annotations and stays uniform through EM → neither annotation
     // crosses the default 0.9 confidence threshold, so no ZF tag.
     let out_dir2 = temp_dir("lc_telescope");
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2201,7 +2201,7 @@ fn test_length_correction_explicit_off_matches_no_correction() {
     // length skew → ambiguous, no ZF tag (as in the telescope default case).
     let (bam_path, gtf_path) = length_correction_fixture("lc_off");
     let out_dir = temp_dir("lc_off");
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2289,7 +2289,7 @@ fn run_telescope(
         "telescope".into(),
     ];
     args.extend(extra.iter().map(|s| s.to_string()));
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args(&args)
         .output()
         .expect("failed to run binary");
@@ -2540,7 +2540,7 @@ fn test_ribbonfish_unaffected_by_theta_prior() {
             "0",
         ];
         args.extend_from_slice(extra);
-        let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+        let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
             .args(&args)
             .output()
             .expect("failed to run binary");
@@ -2578,7 +2578,7 @@ fn test_ribbonfish_length_correction_default_still_short() {
     // much shorter SHORT annotation.
     let (bam_path, gtf_path) = length_correction_fixture("rb_lc_guard");
     let out_dir = temp_dir("rb_lc_guard");
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2616,7 +2616,7 @@ fn test_telescope_length_correction_on_applies() {
     // telescope default (correction off), which leaves it ambiguous (no ZF).
     let (bam_path, gtf_path) = length_correction_fixture("tele_lc_on");
     let out_dir = temp_dir("tele_lc_on");
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2684,7 +2684,7 @@ fn test_band_no_feature_splits_summary_and_aggregates_run_summary() {
     let cyto_path = temp_file("band_split", ".cytoband.txt", TINY_CYTOBAND.as_bytes());
     let out_dir = temp_dir("band_split");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2772,7 +2772,7 @@ fn test_band_no_feature_excluded_from_bam_by_default() {
     let cyto_path = temp_file("band_excl", ".cytoband.txt", TINY_CYTOBAND.as_bytes());
     let out_dir = temp_dir("band_excl");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2826,7 +2826,7 @@ fn test_band_no_feature_jaccard_at_band_level() {
     let cyto_path = temp_file("band_jac", ".cytoband.txt", TINY_CYTOBAND.as_bytes());
     let out_dir = temp_dir("band_jac");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),
@@ -2879,7 +2879,7 @@ fn test_band_no_feature_preserves_drop_count() {
 
     let run = |band_mode: &str, label: &str| -> (usize, usize) {
         let out_dir = temp_dir(label);
-        let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+        let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
             .args([
                 "annotate",
                 bam_path.to_str().unwrap(),
@@ -2941,7 +2941,7 @@ fn test_unmapped_reads_dropped_and_counted() {
     let gtf_path = temp_file("unmapped", ".gtf", gtf_content.as_bytes());
     let out_dir = temp_dir("unmapped");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"))
+    let output = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
         .args([
             "annotate",
             bam_path.to_str().unwrap(),

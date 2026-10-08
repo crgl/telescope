@@ -30,7 +30,7 @@ grep -v '^#' "$here/cases.tsv" | while IFS=$'\t' read -r name ref aln gtf args u
     py310) (cd "$out" && "$T/env/bin/telescope" assign $flag --outdir "$out" --exp_tag t $args "$here/$aln" "$here/$gtf" 2> log) ;;
     py37)  # the Python run is plain Telescope; --tie_hash only tells the Rust side which Python to match
            (cd "$out" && "$T/env_py37/bin/telescope" assign $flag --outdir "$out" --exp_tag t ${args/--tie_hash python37/} "$here/$aln" "$here/$gtf" 2> log) ;;
-    rust)  "$repo/target/release/rusty_telescope" assign --quiet $flag --outdir "$out" --exp_tag t $args "$here/$aln" "$here/$gtf" 2> "$out/log" ;;
+    rust)  "$repo/target/release/telescope_rs" assign --quiet $flag --outdir "$out" --exp_tag t $args "$here/$aln" "$here/$gtf" 2> "$out/log" ;;
   esac
   if [ ! -s "$out/t-telescope_report.tsv" ]; then echo "FAILED $name"; tail -2 "$out/log"; continue; fi
   cp "$out/t-telescope_report.tsv" "$here/expected/$name.report.tsv"

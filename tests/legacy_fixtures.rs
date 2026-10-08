@@ -92,7 +92,7 @@ fn first_difference(got: &str, want: &str) -> String {
 #[test]
 fn assign_matches_reference_on_every_fixture() {
     let dir = data_dir();
-    let scratch = std::env::temp_dir().join(format!("rusty_telescope_fixtures_{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("telescope_rs_fixtures_{}", std::process::id()));
     let mut failures = Vec::new();
     let all = cases();
     assert!(all.len() >= 20, "expected the full case list, found {}", all.len());
@@ -100,7 +100,7 @@ fn assign_matches_reference_on_every_fixture() {
     for case in &all {
         let out = scratch.join(&case.name);
         fs::create_dir_all(&out).unwrap();
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_rusty_telescope"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_telescope_rs"));
         cmd.args(["assign", "--quiet", "--exp_tag", "t", "--outdir"]).arg(&out);
         if case.check_updated {
             // the expected tables hold every alignment, as Telescope writes them

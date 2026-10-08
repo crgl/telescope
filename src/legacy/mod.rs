@@ -394,8 +394,8 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
     ));
 
     // Developer aid for chasing last-bit differences against the reference:
-    // RUSTY_TELESCOPE_DUMP_PI=<path> writes feature, pi and pi_init as exact hex floats.
-    if let Ok(dump) = std::env::var("RUSTY_TELESCOPE_DUMP_PI") {
+    // TELESCOPE_RS_DUMP_PI=<path> writes feature, pi and pi_init as exact hex floats.
+    if let Ok(dump) = std::env::var("TELESCOPE_RS_DUMP_PI") {
         use std::io::Write;
         let mut f = io::BufWriter::new(std::fs::File::create(dump)?);
         for (j, name) in loaded.feat_names.iter().enumerate() {

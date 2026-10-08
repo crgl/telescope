@@ -1,4 +1,4 @@
-# rusty_telescope
+# telescope_rs
 
 A fast Rust toolkit for locus-level quantification of transposable elements from RNA-seq alignments. It has two faces:
 
@@ -8,7 +8,7 @@ A fast Rust toolkit for locus-level quantification of transposable elements from
 ## Usage
 
 ```
-rusty_telescope <COMMAND> [OPTIONS]
+telescope_rs <COMMAND> [OPTIONS]
 ```
 
 | Command | Purpose |
@@ -24,22 +24,22 @@ rusty_telescope <COMMAND> [OPTIONS]
 
 ```bash
 # Same call shape as `telescope assign`
-rusty_telescope assign alignments.bam annotation.gtf --outdir results --exp_tag sample1
+telescope_rs assign alignments.bam annotation.gtf --outdir results --exp_tag sample1
 
 # Also write a BAM of the alignments fragments were assigned to
-rusty_telescope assign alignments.bam annotation.gtf --updated_sam
+telescope_rs assign alignments.bam annotation.gtf --updated_sam
 
 # Stranded paired-end library (dUTP)
-rusty_telescope assign alignments.bam annotation.gtf --stranded_mode RF
+telescope_rs assign alignments.bam annotation.gtf --stranded_mode RF
 
 # Match a Telescope install that runs on Python 3.7 or older
-rusty_telescope assign alignments.bam annotation.gtf --tie_hash python37
+telescope_rs assign alignments.bam annotation.gtf --tie_hash python37
 
 # Exactly the alignment files Telescope writes (all alignments, other.bam, tmp_tele.bam)
-rusty_telescope assign alignments.bam annotation.gtf --updated_sam --legacy
+telescope_rs assign alignments.bam annotation.gtf --updated_sam --legacy
 
 # Coverage of assigned fragments as bigWig, with no BAM kept
-rusty_telescope assign alignments.bam annotation.gtf --bigwig
+telescope_rs assign alignments.bam annotation.gtf --bigwig
 ```
 
 Input is a SAM or BAM file (detected from its content) in which all alignments of a fragment are adjacent, as aligners write them. The run is single-threaded. Output is `<outdir>/<exp_tag>-telescope_report.tsv`, in Telescope's format, with Telescope's version string (`1.0.4.1`) in the header so files compare equal.
@@ -154,9 +154,9 @@ Not yet covered: coordinate-sorted input, input from Linux or other numpy/scipy 
 Wherever two or more loci cover the same bases, a read lying wholly inside the shared stretch overlaps them all equally, and Telescope (hence `assign`) gives it to whichever locus its interval tree yields first. That order follows Python's hash-table layout, not anything biological. `gtf-ties` lists every such stretch for a GTF, without needing any reads.
 
 ```bash
-rusty_telescope gtf-ties annotation.gtf                       # loci defined by gene_id, Python 3.8+ rules
-rusty_telescope gtf-ties annotation.gtf --attribute locus     # match an `assign` run that uses the default attribute
-rusty_telescope gtf-ties annotation.gtf --tie_hash python37   # Telescope under Python 3.7 or older
+telescope_rs gtf-ties annotation.gtf                       # loci defined by gene_id, Python 3.8+ rules
+telescope_rs gtf-ties annotation.gtf --attribute locus     # match an `assign` run that uses the default attribute
+telescope_rs gtf-ties annotation.gtf --tie_hash python37   # Telescope under Python 3.7 or older
 ```
 
 | Flag | Default | Description |
@@ -189,65 +189,65 @@ The rest of this document covers the `annotate` pipeline and its `detect-strand`
 
 ```bash
 # Tag reads using default GTF and gene_id field
-rusty_telescope annotate input.bam
+telescope_rs annotate input.bam
 
 # Use a custom GTF and output directory
-rusty_telescope annotate input.bam --gtf annotations.gtf -o results/
+telescope_rs annotate input.bam --gtf annotations.gtf -o results/
 
 # Keep unmatched reads in output
-rusty_telescope annotate input.bam --include-no-feature
+telescope_rs annotate input.bam --include-no-feature
 
 # Tag with a different GTF attribute
-rusty_telescope annotate input.bam --field locus
+telescope_rs annotate input.bam --field locus
 
 # Single-end mode (no mate pairing, but still groups by QNAME)
-rusty_telescope annotate input.bam --single-end
+telescope_rs annotate input.bam --single-end
 
 # Only include uniquely mapped read pairs
-rusty_telescope annotate input.bam --confidence 1.0
+telescope_rs annotate input.bam --confidence 1.0
 
 # Loosen the confidence threshold
-rusty_telescope annotate input.bam --confidence 0.7
+telescope_rs annotate input.bam --confidence 0.7
 
 # Output all alignments with representative tags
-rusty_telescope annotate input.bam --all-alignments
+telescope_rs annotate input.bam --all-alignments
 
 # Drop mate pairs mapping to different chromosomes
-rusty_telescope annotate input.bam --exclude-discordant
+telescope_rs annotate input.bam --exclude-discordant
 
 # Use the telescope prior model (global linear rescale of AS scores)
-rusty_telescope annotate input.bam --model telescope
+telescope_rs annotate input.bam --model telescope
 
 # Telescope with a lighter θ regularizer (default --theta-prior is 200000)
-rusty_telescope annotate input.bam --model telescope --theta-prior 1000
+telescope_rs annotate input.bam --model telescope --theta-prior 1000
 
 # Skip EM (use priors as posteriors)
-rusty_telescope annotate input.bam --max-iter 0
+telescope_rs annotate input.bam --max-iter 0
 
 # Lower the overlap cutoff written to the TSV
-rusty_telescope annotate input.bam --similarity-threshold 0.01
+telescope_rs annotate input.bam --similarity-threshold 0.01
 
 # Limit to 4 threads
-rusty_telescope annotate input.bam --threads 4
+telescope_rs annotate input.bam --threads 4
 
 # Run silently (errors only)
-rusty_telescope annotate input.bam --quiet
+telescope_rs annotate input.bam --quiet
 
 # Show detailed progress
-rusty_telescope annotate input.bam --verbose
+telescope_rs annotate input.bam --verbose
 
 # Restrict overlaps to strand-compatible features (paired, dUTP/TruSeq stranded)
-rusty_telescope annotate input.bam --stranded RF
+telescope_rs annotate input.bam --stranded RF
 
 # Partition no-feature reads into cytobands (default-on under ribbonfish)
-rusty_telescope annotate input.bam --cytoband reference/cytoBand.txt
+telescope_rs annotate input.bam --cytoband reference/cytoBand.txt
 
 # Disable banding to get the single __no_feature__ bucket back
-rusty_telescope annotate input.bam --band-no-feature off
+telescope_rs annotate input.bam --band-no-feature off
 
 # Infer the library strandedness from a sample of reads, then annotate accordingly
-rusty_telescope detect-strand input.bam
-rusty_telescope annotate input.bam --stranded "$(grep -E '^# recommended_mode' tele_out/input_strandedness.tsv | cut -d' ' -f3)"
+telescope_rs detect-strand input.bam
+telescope_rs annotate input.bam --stranded "$(grep -E '^# recommended_mode' tele_out/input_strandedness.tsv | cut -d' ' -f3)"
 ```
 
 ## Options
@@ -301,7 +301,7 @@ rusty_telescope annotate input.bam --stranded "$(grep -E '^# recommended_mode' t
 
 ## Paired-End vs Single-End Mode
 
-By default, rusty_telescope operates in **paired-end mode**:
+By default, telescope_rs operates in **paired-end mode**:
 
 - Adjacent BAM records with the same QNAME and complementary segment flags (0x40 first-in-pair / 0x80 second-in-pair) are paired into a single alignment unit
 - Mate pairs are validated per the SAM spec: flag correspondence (0x10/0x20) and RNEXT/PNEXT matching. Validation failures produce a warning and the mates are treated as unpaired
@@ -337,7 +337,7 @@ An alignment tied with the global AS minimum contributes zero prior mass (`expm1
 
 ## EM Reassignment
 
-After priors are computed, rusty_telescope runs expectation-maximization to share abundance information across fragments. The update depends on the selected `--model`.
+After priors are computed, telescope_rs runs expectation-maximization to share abundance information across fragments. The update depends on the selected `--model`.
 
 EM runs until the first of two stopping conditions: it reaches `--max-iter` iterations, or it converges — the largest per-annotation change in assigned fragment mass (Σγ, the unweighted expected fragment count) between consecutive iterations drops below `--min-mass-delta` (default `1.0`, i.e. less than one fragment reassigned on any annotation). Setting `--min-mass-delta 0` disables early stopping and always runs the full `--max-iter`. Setting `--max-iter 0` returns γ = π, i.e. the confidence pick operates directly on the priors. The final per-fragment γ replaces the prior as the probability used by the confidence threshold. The actual number of iterations run, and why EM stopped (`converged` / `max-iter reached` / `skipped`), are reported in `*_run_summary.txt`.
 
@@ -425,7 +425,7 @@ symbols unchanged.
 
 ## Ambiguity Resolution
 
-When a read group overlaps multiple annotations, rusty_telescope resolves ambiguity in three phases:
+When a read group overlaps multiple annotations, telescope_rs resolves ambiguity in three phases:
 
 1. **Representative selection.** For each annotation a read group overlaps, the best representative alignment is picked (tiebreakers: highest AS → proper pair → greatest overlap → first in input order).
 2. **Priors → EM posteriors.** The prior model (§ [Prior Models](#prior-models)) produces per-fragment priors, which are fed into the EM loop (§ [EM Reassignment](#em-reassignment)).
@@ -460,7 +460,7 @@ Filtering happens before the read-annotation matrix is built, so dropped overlap
 
 ## Detecting strandedness
 
-`rusty_telescope detect-strand <BAM>` samples the first `--sample` (default 10,000) BAM records that overlap a strand-known GTF feature, tallies how often each (annotation, read-role) hit lines up with the annotation's strand, and writes a TSV plus a recommendation:
+`telescope_rs detect-strand <BAM>` samples the first `--sample` (default 10,000) BAM records that overlap a strand-known GTF feature, tallies how often each (annotation, read-role) hit lines up with the annotation's strand, and writes a TSV plus a recommendation:
 
 ```
 annotation     strand  pct_r1_same  pct_r2_same
@@ -527,7 +527,7 @@ In paired-end mode, both mates of a pair receive identical tags.
 The run summary (`{stem}_run_summary.txt`) is also printed to stderr unless `--quiet` is set:
 
 ```
-rusty_telescope run summary
+telescope_rs run summary
 ==========================
 Total BAM records:       1234567
 Read groups:              617283
@@ -545,7 +545,7 @@ Peak RAM:                  1.2 GB
 
 ## Logging
 
-By default, rusty_telescope prints progress checkpoints to stderr with elapsed time at each pipeline stage:
+By default, telescope_rs prints progress checkpoints to stderr with elapsed time at each pipeline stage:
 
 ```
 [   0.45s] Loaded GTF: 12345 features across 25 chromosomes
@@ -583,7 +583,7 @@ Use `--quiet` to suppress all stderr output, or `--verbose` for additional detai
 
 ## Default Behavior
 
-With no optional flags, `rusty_telescope annotate`:
+With no optional flags, `telescope_rs annotate`:
 
 - Treats reads as **unstranded** — annotation column 7 is parsed but not used to filter overlaps. Pass `--stranded` to enable strand-aware filtering, or run `detect-strand` first to pick a mode
 - Pairs adjacent BAM records into mate pairs using SAM flags (0x40/0x80), validating flag correspondence and RNEXT/PNEXT
@@ -605,7 +605,7 @@ With no optional flags, `rusty_telescope annotate`:
 
 ## Memory
 
-`rusty_telescope`'s peak RAM scales with the number of read groups, the average annotations per group, and (most steeply) annotation co-occurrence density — the Jaccard `SparseMatrix` is the largest single allocator on dense datasets, easily exceeding the rest of the pipeline combined. On a real 28M-group / 164M-overlap dataset the default mode peaked at ~60 GB; a structurally similar but sparser tester only peaks at ~8 GB.
+`telescope_rs`'s peak RAM scales with the number of read groups, the average annotations per group, and (most steeply) annotation co-occurrence density — the Jaccard `SparseMatrix` is the largest single allocator on dense datasets, easily exceeding the rest of the pipeline combined. On a real 28M-group / 164M-overlap dataset the default mode peaked at ~60 GB; a structurally similar but sparser tester only peaks at ~8 GB.
 
 Two flags address this:
 

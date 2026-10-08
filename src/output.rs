@@ -515,7 +515,7 @@ impl fmt::Display for EmStopReason {
 
 impl fmt::Display for RunSummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "rusty_telescope run summary")?;
+        writeln!(f, "telescope_rs run summary")?;
         writeln!(f, "==========================")?;
         writeln!(f, "Total BAM records:    {:>10}", self.total_records)?;
         if self.dropped_unmapped > 0 {
