@@ -328,6 +328,16 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         None
     };
     drop(reader);
+    // The intermediate file exists from here on. Telescope leaves it behind
+    // however the run ends, and so does --legacy; otherwise it is removed on
+    // every exit path, including the early ones below.
+    let wrote_intermediate = sam_out.is_some();
+    let keep_intermediate = args.updated_sam && legacy;
+    let discard_intermediate = || {
+        if wrote_intermediate && !keep_intermediate {
+            std::fs::remove_file(&tagged_path).ok();
+        }
+    };
     let loaded = loader::load(
         &args.samfile,
         &annot,
@@ -337,7 +347,8 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
             no_feature_key: args.no_feature_key.clone(),
         },
         sam_out,
-    )?;
+    )
+    .inspect_err(|_| discard_intermediate())?;
     drop(annot);
     let i = &loaded.info;
     log.stage(&format!(
@@ -366,6 +377,7 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
     }
     if i.overlap_unique + i.overlap_ambig == 0 {
         log.stage("No alignments overlapping annotation");
+        discard_intermediate();
         return Ok(());
     }
 

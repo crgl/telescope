@@ -117,3 +117,30 @@ fn gtf_ties_reports_telescope_winners() {
     fs::remove_dir_all(&out).ok();
     assert_eq!(got, want);
 }
+
+/// When nothing overlaps the annotation the run stops early. No report is
+/// written (as with Telescope), and no intermediate BAM may be left behind
+/// unless --legacy asks for Telescope's exact file set.
+#[test]
+fn no_overlap_leaves_no_intermediate_file() {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let out = std::env::temp_dir().join(format!("telescope_rs_no_overlap_{}", std::process::id()));
+    fs::create_dir_all(&out).unwrap();
+    // a GTF on a chromosome the alignments never touch
+    let gtf = out.join("elsewhere.gtf");
+    fs::write(&gtf, "chrNowhere\ttest\texon\t100\t200\t.\t+\t.\tlocus \"L1\";\n").unwrap();
+    for (tag, extra, kept) in [("plain", &["--updated_sam", "--bigwig"][..], false), ("legacy", &["--updated_sam", "--legacy"][..], true)] {
+        let status = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
+            .args(["assign", "--quiet", "--exp_tag", tag, "--outdir"])
+            .arg(&out)
+            .args(extra)
+            .arg(format!("{root}/tests/data/bundled/alignment.bam"))
+            .arg(&gtf)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(!out.join(format!("{tag}-telescope_report.tsv")).exists());
+        assert_eq!(out.join(format!("{tag}-tmp_tele.bam")).exists(), kept, "{tag}");
+    }
+    fs::remove_dir_all(&out).ok();
+}
