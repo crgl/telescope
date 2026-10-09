@@ -16,6 +16,8 @@ use noodles::sam::alignment::{
 
 struct Case {
     name: String,
+    /// true when the expected output came from Python Telescope
+    python_reference: bool,
     alignment: String,
     gtf: String,
     args: Vec<String>,
@@ -36,6 +38,7 @@ fn cases() -> Vec<Case> {
             assert_eq!(f.len(), 6, "malformed cases.tsv line: {l}");
             Case {
                 name: f[0].to_string(),
+                python_reference: f[1] != "rust",
                 alignment: f[2].to_string(),
                 gtf: f[3].to_string(),
                 args: f[4].split_whitespace().filter(|a| *a != "-").map(str::to_string).collect(),
@@ -102,9 +105,13 @@ fn check_all(math: &str, expected_dir: &str) {
         fs::create_dir_all(&out).unwrap();
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_telescope_rs"));
         cmd.args(["assign", "--quiet", "--exp_tag", "t", "--math", math, "--outdir"]).arg(&out);
+        if case.python_reference {
+            // Telescope's own behaviour throughout
+            cmd.arg("--legacy");
+        }
         if case.check_updated {
-            // the expected tables hold every alignment, as Telescope writes them
-            cmd.args(["--updated_sam", "--legacy"]);
+            // the expected tables hold every alignment of every overlapping fragment
+            cmd.args(["--updated_sam", "--updated_sam_content", "all", "--no-other"]);
         }
         cmd.args(&case.args).arg(dir.join(&case.alignment)).arg(dir.join(&case.gtf));
         let run = cmd.output().unwrap();

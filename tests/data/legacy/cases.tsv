@@ -1,6 +1,8 @@
 # case	reference	alignment	gtf	args (- for none)	check_updated_bam
 # reference: py310 / py37 = report produced by Python Telescope 1.0.4.1 under that Python;
 #            rust = no Python equivalent exists, output pinned from this program to catch drift.
+# Cases with a Python reference are run with --legacy, which selects Telescope's own behaviour throughout;
+# rust cases are run without it.
 pe_hs1_herv	py310	pe_hs1_herv.bam	hs1_herv_subset.gtf	-	no
 pe_hs1_herv_py37	py37	pe_hs1_herv.bam	hs1_herv_subset.gtf	--tie_hash python37	no
 pe_hs1_herv_theta0	py310	pe_hs1_herv.bam	hs1_herv_subset.gtf	--theta_prior 0	no
@@ -10,6 +12,8 @@ pe_hs1_herv_average	py310	pe_hs1_herv.bam	hs1_herv_subset.gtf	--reassign_mode av
 pe_hs1_herv_conf	py310	pe_hs1_herv.bam	hs1_herv_subset.gtf	--reassign_mode conf	no
 pe_hs1_herv_unique	py310	pe_hs1_herv.bam	hs1_herv_subset.gtf	--reassign_mode unique	no
 pe_hs1_herv_no_theta	rust	pe_hs1_herv.bam	hs1_herv_subset.gtf	--model no-theta	no
+pe_hs1_herv_choose_weighted	rust	pe_hs1_herv.bam	hs1_herv_subset.gtf	--reassign_mode choose	no
+pe_hs1_herv_fractional	rust	pe_hs1_herv.bam	hs1_herv_subset.gtf	--reassign_mode average	no
 pe_hs1_herv_corrected	rust	pe_hs1_herv.bam	hs1_herv_subset.gtf	--overlap_compat corrected	no
 pe_hg38_hml2	py310	pe_hg38_hml2.bam	../../../reference/hg38.hml2_only.gtf	-	no
 pe_hisat2	py310	pe_hisat2.bam	hg38_window_herv_genes.gtf	-	yes

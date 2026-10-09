@@ -63,8 +63,8 @@ Names and defaults are Telescope's, underscores included.
 | `--no_feature_key` | `__no_feature` | Name for alignments that overlap no feature |
 | `--outdir` | `.` | Output directory |
 | `--exp_tag` | `telescope` | Output file prefix |
-| `--reassign_mode` | `exclude` | Mode behind the `final_count` column: `exclude`, `choose`, `average`, `conf`, `unique` |
-| `--conf_prob` | `0.9` | Threshold for the `conf` mode and the `final_conf` column |
+| `--reassign_mode` | `exclude` | Mode behind the `final_count` column, the updated BAM and the bigWig: `exclude`, `choose`, `average`, `conf`, `unique`. See [Reassignment modes](#reassignment-modes) |
+| `--conf_prob` | `0.9` | Threshold for the `conf` mode and the `final_conf` column. Must be above 0.5 unless `--legacy` is given |
 | `--overlap_threshold` | `0.2` | Fraction of a fragment that must lie within a feature |
 | `--stranded_mode` | `None` | `None`, `RF`, `FR`, `R`, `F` |
 | `--pi_prior` | `0` | Prior on pi |
@@ -81,7 +81,7 @@ Not available: `--ncpu`, `--tempdir`, `--logfile`, `--skip_em`, `--annotation_cl
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--legacy` | off | With `--updated_sam`, write exactly Telescope's files: all alignments, `other.bam`, `tmp_tele.bam` kept, compression level 6. Sets the defaults of the options marked *. The report is the same with or without it |
+| `--legacy` | off | Telescope's behaviour wherever this program's default differs. With `--updated_sam`: all alignments, `other.bam`, `tmp_tele.bam` kept, compression level 6 (it sets the defaults of the options marked *). For `--reassign_mode choose` and `average`: Telescope's tie-only forms. For `--conf_prob`: values of 0.5 or below are accepted |
 | `--model` | `telescope` | `telescope`: Telescope's EM. `no-theta`: the same EM without theta and its prior |
 | `--overlap_compat` | `telescope` | Sets `--overlap_coords` and `--overlap_ties` together |
 | `--overlap_coords` | follows `--overlap_compat` | `telescope`: overlaps measured one base to the right, and a GTF row bridging two intervals of its own locus aborts the run. `corrected`: true coordinates, no abort |
@@ -94,9 +94,25 @@ Not available: `--ncpu`, `--tempdir`, `--logfile`, `--skip_em`, `--annotation_cl
 | `--no-other` | off | Do not write `other.bam` even when all alignments are requested |
 | `--bigwig` | off | Write coverage of assigned fragments as bigWig (see below) |
 
+### Reassignment modes
+
+After fitting, each fragment has a weight for each of its candidate features, summing to 1. `--reassign_mode` decides how those weights become the `final_count` column, and which alignments go into the updated BAM and the bigWig.
+
+| Mode | Default | With `--legacy` (Telescope) |
+|------|---------|------------------------------|
+| `exclude` | The single best candidate; fragments whose best weight is tied are dropped | same |
+| `conf` | The candidate whose weight reaches `--conf_prob`, if any. `--conf_prob` must be above 0.5, so at most one can | same, but any `--conf_prob` is accepted; at 0.5 or below a fragment can pass for several features and is split between them |
+| `unique` | Only fragments with a single candidate | same |
+| `choose` | One candidate drawn at random with probability equal to its weight | The best candidate; only exact ties between best candidates are broken, uniformly at random |
+| `average` | Every candidate receives its weight, so a feature's count is its expected number of fragments | The best candidate; only exact ties between best candidates are split, evenly |
+
+Telescope's `choose` and `average` ignore the fitted weights except to find the maximum, so on most fragments they behave like `exclude` without the drop. The default forms use the weights themselves; `average` is then the expectation of `choose`.
+
+With the default `exclude` mode the report is identical to Telescope's with or without `--legacy`. With `choose` or `average` only the `final_count` column differs from Telescope's unless `--legacy` is given; every other column, including `init_best_random` and `init_best_avg`, stays as Telescope computes it. The draw for `choose` is seeded from the data, so reruns give the same result.
+
 ### Updated BAM (`--updated_sam`)
 
-By default only `<exp_tag>-updated.bam` is written. It holds one alignment (both mates) per assigned fragment: fragments assigned to the no-feature key or to nothing are left out. Each record carries Telescope's tags: `ZF` is the alignment's feature, `ZT` is `PRI`, `ZB` lists the top-scoring feature(s), `XP` is the membership weight as a percentage, `YC` is a display colour, and MAPQ is the phred-scaled weight. These records are the same ones, with the same content, that Telescope writes for assigned fragments.
+By default only `<exp_tag>-updated.bam` is written. It holds the alignment each fragment was assigned to (both mates); fragments assigned to the no-feature key or to nothing are left out. That is one alignment per fragment in every mode except `average`, which assigns a fragment to all of its candidates and so writes each of them, with the weight in `XP`. Each record carries Telescope's tags: `ZF` is the alignment's feature, `ZT` is `PRI`, `ZB` lists the top-scoring feature(s), `XP` is the membership weight as a percentage, `YC` is a display colour, and MAPQ is the phred-scaled weight. These records are the same ones, with the same content, that Telescope writes for assigned fragments.
 
 With `--legacy` (or `--updated_sam_content all`) three files are written, as Telescope does:
 
@@ -112,7 +128,7 @@ On a 40-million-pair sample with a HERV annotation, `--updated_sam` takes about 
 
 ### Coverage (`--bigwig`)
 
-`--bigwig` writes per-base coverage of assigned fragments to `<exp_tag>-coverage.bw`, or to `<exp_tag>-coverage.plus.bw` and `<exp_tag>-coverage.minus.bw` when `--stranded_mode` is set. Each assigned fragment counts once over the reference bases its assigned alignment covers: aligned blocks only, so introns and deletions are excluded, and the overlap between two mates is not counted twice. Values are raw depth. It can be used with or without `--updated_sam`; on its own it leaves no BAM behind.
+`--bigwig` writes per-base coverage of assigned fragments to `<exp_tag>-coverage.bw`, or to `<exp_tag>-coverage.plus.bw` and `<exp_tag>-coverage.minus.bw` when `--stranded_mode` is set. Each assigned alignment adds its share of the fragment over the reference bases it covers: aligned blocks only, so introns and deletions are excluded, and the overlap between two mates is not counted twice. The share is 1 in every mode except `average`, where it is the candidate's weight, giving fractional coverage that sums to one fragment across its candidates. Values are unnormalised. It can be used with or without `--updated_sam`; on its own it leaves no BAM behind.
 
 ### How it relates to Python Telescope
 
@@ -154,7 +170,7 @@ Not yet covered: coordinate-sorted input, and Python Telescope run on Linux or w
 `cargo test` checks `assign` against the reference without needing Python or any external data:
 
 - `tests/legacy.rs` uses the test data Telescope shipped (`tests/data/bundled/`).
-- `tests/legacy_fixtures.rs` runs 23 cases over small real-data fixtures in `tests/data/legacy/` (about 12 MB). They cover paired and single-end reads, stranded and unstranded libraries, HISAT2, bowtie2 and STAR, long reads with supplementary alignments, SAM input, a GTF with mangled quoting, every reassign mode, `--theta_prior 0`, and Telescope under both Python 3.7 and 3.10. One fixture is sized so that numpy's summation order and the zero-weight rule change the answer if they are not reproduced. Each case is checked twice: against output pinned from the default portable math, on every platform, and against the report Python Telescope produced, with `--math system`, on macOS arm64 only (the platform that reference came from).
+- `tests/legacy_fixtures.rs` runs 25 cases over small real-data fixtures in `tests/data/legacy/` (about 12 MB). They cover paired and single-end reads, stranded and unstranded libraries, HISAT2, bowtie2 and STAR, long reads with supplementary alignments, SAM input, a GTF with mangled quoting, every reassign mode in both its Telescope and default form, `--theta_prior 0`, and Telescope under both Python 3.7 and 3.10. One fixture is sized so that numpy's summation order and the zero-weight rule change the answer if they are not reproduced. Each case is checked twice: against output pinned from the default portable math, on every platform, and against the report Python Telescope produced, with `--math system`, on macOS arm64 only (the platform that reference came from).
 
 `tests/data/legacy/README.md` says what each fixture is for and how it was made.
 

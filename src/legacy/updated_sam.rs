@@ -135,7 +135,7 @@ pub fn write(
                         0
                     };
                     if let Ok(ref_id) = usize::try_from(recs[aln.r1].ref_id) {
-                        cov.add(track, ref_id, &merged);
+                        cov.add(track, ref_id, &merged, entry.map_or(1.0, |k| assigned[k] as f32));
                     }
                 }
                 (phred(prob), Some(percent), !is_assigned, colour)

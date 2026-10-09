@@ -15,6 +15,13 @@ pub enum ReassignMode {
     Average,
     Conf,
     Unique,
+    /// Not Telescope's: one candidate drawn with probability equal to its
+    /// fitted weight (Telescope's `choose` only breaks exact ties, uniformly).
+    ChooseWeighted,
+    /// Not Telescope's: every candidate receives its fitted weight, so a
+    /// feature's total is its expected count (Telescope's `average` only
+    /// splits exact ties, evenly).
+    Fractional,
 }
 
 /// Per-feature totals for one reassignment mode. Telescope prints some modes
@@ -102,6 +109,35 @@ fn reassign_with(
                 emit(k, share);
             }
         }),
+        ReassignMode::ChooseWeighted => {
+            for i in 0..m.n_rows {
+                let mut live = m.row(i).filter(|&k| w.present(k) && z[k] > 0.0);
+                let (Some(first), second) = (live.next(), live.next()) else { continue };
+                if second.is_none() {
+                    emit(first, 1.0);
+                    continue;
+                }
+                // weights of a row sum to 1; the last live candidate absorbs rounding
+                let u = rng.random_f64();
+                let mut cum = 0.0;
+                let mut pick = first;
+                for k in m.row(i).filter(|&k| w.present(k) && z[k] > 0.0) {
+                    pick = k;
+                    cum += z[k];
+                    if u < cum {
+                        break;
+                    }
+                }
+                emit(pick, 1.0);
+            }
+        }
+        ReassignMode::Fractional => {
+            for (k, &v) in z.iter().enumerate() {
+                if w.present(k) && v > 0.0 {
+                    emit(k, v);
+                }
+            }
+        }
         ReassignMode::Conf => {
             let mut kept = Vec::new();
             for i in 0..m.n_rows {
@@ -139,7 +175,7 @@ pub fn reassign(
     let mut out = vec![0.0; m.n_cols];
     reassign_with(m, w, mode, thresh, rng, |k, v| out[m.indices[k] as usize] += v);
     match mode {
-        ReassignMode::Average | ReassignMode::Conf => Column::Float(out),
+        ReassignMode::Average | ReassignMode::Conf | ReassignMode::Fractional => Column::Float(out),
         // whole-number counts: exact in f64
         _ => Column::Int(out.into_iter().map(|x| x as i64).collect()),
     }
@@ -179,6 +215,9 @@ pub struct ReportInputs<'a> {
     pub version: &'a str,
     pub mode: ReassignMode,
     pub conf_prob: f64,
+    /// The final reassignment matrix when it was computed up front (the
+    /// modes that are not Telescope's); otherwise it is computed here.
+    pub final_entries: Option<&'a [f64]>,
 }
 
 /// `rng` is the run's generator, seeded from `Telescope.get_random_seed()`;
@@ -189,7 +228,24 @@ pub fn write_report(path: &str, r: &ReportInputs, rng: &mut Mt19937) -> io::Resu
     // numbers, so the order fixes which draws each column sees.
     let fin = Weights { z: &fit.z, absent: &fit.absent };
     let init = Weights { z: &fit.z_init, absent: &[] };
-    let final_count = reassign(m, fin, r.mode, r.conf_prob, rng);
+    let final_count = match r.final_entries {
+        Some(entries) => {
+            // Telescope would have drawn from the generator here in `choose`
+            // mode; do the same so the init_* columns stay what it reports.
+            if r.mode == ReassignMode::ChooseWeighted {
+                reassign(m, fin, ReassignMode::Choose, r.conf_prob, rng);
+            }
+            let mut out = vec![0.0; m.n_cols];
+            for (k, &v) in entries.iter().enumerate() {
+                out[m.indices[k] as usize] += v;
+            }
+            match r.mode {
+                ReassignMode::Fractional => Column::Float(out),
+                _ => Column::Int(out.into_iter().map(|x| x as i64).collect()),
+            }
+        }
+        None => reassign(m, fin, r.mode, r.conf_prob, rng),
+    };
     let final_conf = reassign(m, fin, ReassignMode::Conf, r.conf_prob, rng);
     let init_aligned = count_all(m, &fit.z_init);
     let unique_count = reassign(m, fin, ReassignMode::Unique, r.conf_prob, rng);
@@ -204,7 +260,7 @@ pub fn write_report(path: &str, r: &ReportInputs, rng: &mut Mt19937) -> io::Resu
         final_count.key(b).partial_cmp(&final_count.key(a)).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let final_as_float = matches!(r.mode, ReassignMode::Average | ReassignMode::Conf);
+    let final_as_float = matches!(r.mode, ReassignMode::Average | ReassignMode::Conf | ReassignMode::Fractional);
     let i = r.info;
     let mut out = BufWriter::new(File::create(path)?);
     writeln!(

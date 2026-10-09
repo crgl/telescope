@@ -138,11 +138,16 @@ pub struct AssignArgs {
     #[arg(long = "exp_tag", default_value = "telescope")]
     pub exp_tag: String,
 
-    /// Reassignment mode used for the final_count column
+    /// Reassignment mode used for the final_count column (and for the updated
+    /// BAM and bigWig). `choose` draws one candidate with probability equal
+    /// to its fitted weight and `average` gives every candidate its fitted
+    /// weight; with --legacy both act as in Telescope, only on exact ties
+    /// between best hits (uniform draw, even split)
     #[arg(long = "reassign_mode", value_enum, default_value = "exclude")]
     pub reassign_mode: ReassignModeArg,
 
-    /// Minimum probability for a high-confidence assignment
+    /// Minimum probability for a high-confidence assignment; must be above
+    /// 0.5 unless --legacy is given
     #[arg(long = "conf_prob", default_value_t = 0.9)]
     pub conf_prob: f64,
 
@@ -223,7 +228,9 @@ pub struct AssignArgs {
     /// <exp_tag>-tmp_tele.bam left in place, and compression level 6.
     /// Without it the updated file holds only the alignment each fragment
     /// was assigned to, nothing else is kept, and compression is level 1.
-    /// The report is the same either way
+    /// It also selects Telescope's own form of --reassign_mode choose and
+    /// average and lifts the --conf_prob limit; the report is otherwise the
+    /// same either way
     #[arg(long)]
     pub legacy: bool,
 
@@ -240,9 +247,10 @@ pub struct AssignArgs {
 
     /// Write coverage of assigned fragments as bigWig: <exp_tag>-coverage.bw,
     /// or -coverage.plus.bw and -coverage.minus.bw when --stranded_mode is
-    /// set. Each assigned fragment counts once over the bases its assigned
-    /// alignment covers. Independent of --updated_sam; on its own it leaves
-    /// no BAM behind
+    /// set. Each assigned alignment adds its share of the fragment (1, or the
+    /// fitted weight under --reassign_mode average) over the bases it
+    /// covers. Independent of --updated_sam; on its own it leaves no BAM
+    /// behind
     #[arg(long)]
     pub bigwig: bool,
 
@@ -278,6 +286,16 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         StrandedArg::F => Stranded::F,
     };
     let legacy = args.legacy;
+    if !legacy && args.conf_prob <= 0.5 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "--conf_prob must be above 0.5 (got {}): at 0.5 or below one fragment can pass for \
+                 several features at once. Telescope accepts such values; use --legacy to do the same.",
+                args.conf_prob
+            ),
+        ));
+    }
     let compat = match args.overlap_compat {
         OverlapCompatArg::Telescope => OverlapCompat::Telescope,
         OverlapCompatArg::Corrected => OverlapCompat::Corrected,
@@ -432,13 +450,24 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
 
     let mode = match args.reassign_mode {
         ReassignModeArg::Exclude => ReassignMode::Exclude,
-        ReassignModeArg::Choose => ReassignMode::Choose,
-        ReassignModeArg::Average => ReassignMode::Average,
+        // Telescope's choose and average only act on exact ties between best
+        // hits and ignore the fitted weights otherwise; that form is kept
+        // for --legacy.
+        ReassignModeArg::Choose if legacy => ReassignMode::Choose,
+        ReassignModeArg::Choose => ReassignMode::ChooseWeighted,
+        ReassignModeArg::Average if legacy => ReassignMode::Average,
+        ReassignModeArg::Average => ReassignMode::Fractional,
         ReassignModeArg::Conf => ReassignMode::Conf,
         ReassignModeArg::Unique => ReassignMode::Unique,
     };
     let path = outfile("telescope_report.tsv");
     let mut rng = Mt19937::new(seed);
+    let weights = report::Weights { z: &fit.z, absent: &fit.absent };
+    // The two modes that are not Telescope's are computed once, from their own
+    // generator, and that one result feeds the report, the BAM and the bigWig.
+    let own_mode = matches!(mode, ReassignMode::ChooseWeighted | ReassignMode::Fractional);
+    let precomputed =
+        own_mode.then(|| report::reassign_entries(m, weights, mode, args.conf_prob, &mut Mt19937::new(seed)));
     report::write_report(
         &path,
         &ReportInputs {
@@ -450,14 +479,17 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
             version: REFERENCE_VERSION,
             mode,
             conf_prob: args.conf_prob,
+            final_entries: precomputed.as_deref(),
         },
         &mut rng,
     )?;
     if args.updated_sam || args.bigwig {
         // Telescope recomputes the reassignment here, drawing from the same
         // generator again in `choose` mode.
-        let weights = report::Weights { z: &fit.z, absent: &fit.absent };
-        let assigned = report::reassign_entries(m, weights, mode, args.conf_prob, &mut rng);
+        let assigned = match precomputed {
+            Some(entries) => entries,
+            None => report::reassign_entries(m, weights, mode, args.conf_prob, &mut rng),
+        };
         let updated = outfile("updated.bam");
         let n_refs = loaded.header.reference_sequences().len();
         let mut coverage = args.bigwig.then(|| Coverage::new(if stranded == Stranded::None { 1 } else { 2 }, n_refs));

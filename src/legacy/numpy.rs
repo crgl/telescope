@@ -157,6 +157,13 @@ impl Mt19937 {
         y
     }
 
+    /// `np.random.random_sample()`: a double in [0, 1) from two 32-bit draws.
+    pub fn random_f64(&mut self) -> f64 {
+        let a = (self.next_u32() >> 5) as f64;
+        let b = (self.next_u32() >> 6) as f64;
+        (a * 67108864.0 + b) / 9007199254740992.0
+    }
+
     /// Index drawn by `np.random.choice(range(n))`: masked rejection sampling
     /// on 32-bit draws. Consumes nothing when `n == 1`.
     pub fn choice(&mut self, n: u32) -> u32 {
@@ -250,6 +257,13 @@ mod tests {
         for &(x, want) in cases {
             assert_eq!(fmt_g3(x), want, "x={x}");
         }
+    }
+
+    #[test]
+    fn random_f64_matches_numpy() {
+        // np.random.seed(12345); np.random.random_sample()
+        let mut rng = Mt19937::new(12345);
+        assert_eq!(rng.random_f64(), 0.9296160928171479);
     }
 
     #[test]

@@ -8,7 +8,9 @@ runs every line of `cases.tsv` and requires a byte-for-byte match with `expected
 Reference environments: Python 3.10.21 with numpy 1.26.4, scipy 1.15.2, pysam 0.24.1 and
 intervaltree 3.1.0 (`py310`), and Python 3.7.12 with numpy 1.21.6 and scipy 1.7.3 (`py37`).
 Cases marked `rust` have no Python equivalent; their expected output was written by this
-program and only guards against unintended change.
+program and only guards against unintended change. Cases with a Python reference are run with
+`--legacy`, which selects Telescope's behaviour wherever this program's default differs (the
+`choose` and `average` reassignment modes); `rust` cases are run without it.
 
 ## Two sets of expected output
 
@@ -22,7 +24,7 @@ produced it. The tests therefore check two things:
   on macOS arm64 only.
 
 At the time of writing the two sets are byte-identical, i.e. the portable mode reproduces the
-Python reference on all 23 cases.
+Python reference on every case that has one.
 
 ## What each fixture is for
 
