@@ -255,7 +255,10 @@ fn invalid(msg: String) -> io::Error {
 }
 
 pub struct LoadOptions {
+    /// Fraction of the fragment's aligned length the best feature must exceed.
     pub overlap_threshold: f64,
+    /// Bases the best feature must overlap at least.
+    pub overlap_threshold_nt: u64,
     pub stranded: Stranded,
     pub no_feature_key: String,
 }
@@ -342,7 +345,10 @@ impl Accum<'_> {
             let chrom = usize::try_from(r1.ref_id).ok().and_then(|i| self.ref_names.get(i));
             let hit = chrom.and_then(|c| self.annot.best_feature(c, &self.blocks, strand, &mut self.hits));
             let feat = match hit {
-                Some(h) if h.overlap as f64 > alnlen as f64 * self.opts.overlap_threshold => {
+                Some(h)
+                    if h.overlap as f64 > alnlen as f64 * self.opts.overlap_threshold
+                        && h.overlap >= self.opts.overlap_threshold_nt =>
+                {
                     self.tied += h.tied as u64;
                     h.locus
                 }

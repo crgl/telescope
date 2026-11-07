@@ -65,7 +65,7 @@ Names and defaults are Telescope's, underscores included.
 | `--exp_tag` | `telescope` | Output file prefix |
 | `--reassign_mode` | `exclude` | Mode behind the `final_count` column, the updated BAM and the bigWig: `exclude`, `choose`, `average`, `conf`, `unique`. See [Reassignment modes](#reassignment-modes) |
 | `--conf_prob` | `0.9` | Threshold for the `conf` mode and the `final_conf` column. Must be above 0.5 unless `--legacy` is given |
-| `--overlap_threshold` | `0.2` | Fraction of a fragment that must lie within a feature |
+| `--overlap_threshold` | `0.2` | Fraction of a fragment that must lie within a feature (the overlap must exceed it; `0` turns it off) |
 | `--stranded_mode` | `None` | `None`, `RF`, `FR`, `R`, `F` |
 | `--pi_prior` | `0` | Prior on pi |
 | `--theta_prior` | `200000` | Prior on theta |
@@ -85,6 +85,7 @@ Not available: `--ncpu`, `--tempdir`, `--logfile`, `--skip_em`, `--annotation_cl
 | `--model` | `telescope` | `telescope`: Telescope's EM. `no-theta`: the same EM without theta and its prior |
 | `--overlap_compat` | `telescope` | Sets `--overlap_coords` and `--overlap_ties` together |
 | `--overlap_coords` | follows `--overlap_compat` | `telescope`: overlaps measured one base to the right, and a GTF row bridging two intervals of its own locus aborts the run. `corrected`: true coordinates, no abort |
+| `--overlap_threshold_nt` | `0` (off) | Number of bases of a fragment that must lie within a feature (the overlap must reach it). Applies on top of `--overlap_threshold`, so both must pass; use `--overlap_threshold 0` for an absolute threshold alone. Bases are counted as `--overlap_coords` counts them |
 | `--overlap_ties` | follows `--overlap_compat` | Which locus wins when two overlap an alignment equally. `telescope`: the order Python's set iteration yields. `corrected`: the locus that appears first in the GTF |
 | `--tie_hash` | `python38` | Which Python's tuple hash drives Telescope-style ties: `python38` (3.8 and newer) or `python37` (3.7 and older) |
 | `--math` | `portable` | Source of `expm1`, `log1p` and `log10`. `portable`: a correctly rounded implementation, identical on every machine. `system`: the platform's math library, as numpy uses, to match Python Telescope run on the same machine |

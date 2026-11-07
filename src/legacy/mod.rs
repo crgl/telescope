@@ -151,9 +151,16 @@ pub struct AssignArgs {
     #[arg(long = "conf_prob", default_value_t = 0.9)]
     pub conf_prob: f64,
 
-    /// Fraction of a fragment that must lie within a feature
+    /// Fraction of a fragment that must lie within a feature. The overlap
+    /// must exceed it; 0 turns the check off
     #[arg(long = "overlap_threshold", default_value_t = 0.2)]
     pub overlap_threshold: f64,
+
+    /// Number of bases of a fragment that must lie within a feature, as
+    /// --overlap_coords measures them. The overlap must reach it; applies on
+    /// top of --overlap_threshold, so both must pass. 0 turns the check off
+    #[arg(long = "overlap_threshold_nt", default_value_t = 0)]
+    pub overlap_threshold_nt: u64,
 
     /// Library orientation for strand-aware assignment
     #[arg(long = "stranded_mode", value_enum, default_value = "None")]
@@ -361,6 +368,7 @@ pub fn run_assign(args: AssignArgs) -> io::Result<()> {
         &annot,
         &LoadOptions {
             overlap_threshold: args.overlap_threshold,
+            overlap_threshold_nt: args.overlap_threshold_nt,
             stranded,
             no_feature_key: args.no_feature_key.clone(),
         },

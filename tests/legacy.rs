@@ -144,3 +144,35 @@ fn no_overlap_leaves_no_intermediate_file() {
     }
     fs::remove_dir_all(&out).ok();
 }
+
+/// `--overlap_threshold_nt` adds an absolute floor on top of the relative
+/// `--overlap_threshold`. Every bundled fragment that overlaps a feature does
+/// so by at least 1 base, so a 1 nt floor changes nothing; 100 nt drops some
+/// overlaps and changes the report; a floor longer than any fragment leaves
+/// nothing overlapping, so no report is written.
+#[test]
+fn overlap_threshold_nt_filters_short_overlaps() {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let out = std::env::temp_dir().join(format!("telescope_rs_overlap_nt_{}", std::process::id()));
+    fs::create_dir_all(&out).unwrap();
+    let report = |tag: &str, extra: &[&str]| -> Option<String> {
+        let status = Command::new(env!("CARGO_BIN_EXE_telescope_rs"))
+            .args(["assign", "--quiet", "--exp_tag", tag, "--outdir"])
+            .arg(&out)
+            .args(extra)
+            .arg(format!("{root}/tests/data/bundled/alignment.bam"))
+            .arg(format!("{root}/tests/data/bundled/annotation.gtf"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        fs::read_to_string(out.join(format!("{tag}-telescope_report.tsv"))).ok()
+    };
+    let default = report("default", &[]).unwrap();
+    let nt1 = report("nt1", &["--overlap_threshold_nt", "1"]).unwrap();
+    let nt100 = report("nt100", &["--overlap_threshold_nt", "100"]).unwrap();
+    let huge = report("huge", &["--overlap_threshold_nt", "100000"]);
+    fs::remove_dir_all(&out).ok();
+    assert_eq!(nt1, default);
+    assert_ne!(nt100, default);
+    assert!(huge.is_none());
+}
